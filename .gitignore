@@ -1,0 +1,26 @@
+# AI 工具生成的文件
+.cursor/
+.claude/
+.windsurf/
+.gemini/
+.roo/
+.continue/
+.codebuddy/
+.qwen/
+.github/copilot-instructions.md
+
+# IDE & Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Environment
+.env.local
+.env.*.local
