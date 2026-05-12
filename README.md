@@ -52,7 +52,7 @@ Agent Hub 是一个面向 WooCoos 项目的 AI 辅助开发资源集合站。我
 | 技能名称 | 描述 | 适用场景 |
 |---------|------|---------|
 | [karpathy-guidelines](skills/andrej-karpathy/SKILL.md) | 减少 LLM 编码常见错误的行为准则 | 编写、审查或重构代码时避免过度复杂化 |
-| [knockout-go](skills/knockout-go/SKILL.md) | Knockout.js MVVM 模式后端 Go 实现最佳实践 | 前后端分离架构设计 |
+| [knockout-go(TODO)](skills/knockout-go/SKILL.md) | Knockout Go 最佳实践 | 将Knockout的特点梳理 |
 
 > 💡 欢迎贡献你的 Go 开发技能包!
 
@@ -228,9 +228,10 @@ golangci-lint run
 
 ### 🔧 Tools (工具集)
 
-| 工具名称 | 描述 | Go 版本要求 |
-|---------|------|------------|
-| *(待添加)* | *(待添加)* | *(待添加)* |
+| 工具名称 | 描述 | 安装方式 |
+|---------|------|---------|
+| [find-skills](https://github.com/vercel-labs/skills/tree/main/skills/find-skills) | Skills 搜索和安装工具,发现社区高质量 Skills | `npx skills add https://github.com/vercel-labs/skills --skill find-skills -g -a qwen-code -y` |
+| [golangci-lint](#golangci-lint) | Go lint 聚合工具,100+ linter | 见下方安装说明 |
 
 > 🛠️ 提升开发效率的实用工具
 
@@ -264,21 +265,5 @@ golangci-lint run
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
-
-## 🔗 相关链接
-
-- [WooCoos 主项目](https://github.com/woocoos)
-- [Go 官方文档](https://go.dev/doc/)
-- [AI 辅助开发最佳实践](https://docs.github.com/en/copilot)
-
-## 💬 问题反馈
-
-如果你在使用过程中遇到任何问题或有改进建议,欢迎:
-
-- 提交 [Issue](https://github.com/woocoos/agent-hub/issues)
-- 参与 [Discussions](https://github.com/woocoos/agent-hub/discussions)
-- 直接提交 [Pull Request](https://github.com/woocoos/agent-hub/pulls)
-
----
 
 <p align="center">Made with ❤️ for Go developers</p>
