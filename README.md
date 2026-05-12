@@ -52,7 +52,6 @@ Agent Hub 是一个面向 WooCoos 项目的 AI 辅助开发资源集合站。我
 | 技能名称 | 描述 | 适用场景 |
 |---------|------|---------|
 | [karpathy-guidelines](skills/andrej-karpathy/SKILL.md) | 减少 LLM 编码常见错误的行为准则 | 编写、审查或重构代码时避免过度复杂化 |
-| [golang-fullstack-best-practices](skills/golang-fullstack/SKILL.md) | Go 全栈最佳实践,89 条规则覆盖并发/架构/GORM/PostgreSQL | Go 后端项目代码审查 |
 | [knockout-go](skills/knockout-go/SKILL.md) | Knockout.js MVVM 模式后端 Go 实现最佳实践 | 前后端分离架构设计 |
 
 > 💡 欢迎贡献你的 Go 开发技能包!
