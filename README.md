@@ -94,7 +94,6 @@ cp skills/andrej-karpathy/SKILL.md ~/.qwen/skills/karpathy-guidelines/
 |-------|------|---------|
 | [samber/cc-skills-golang](#sambercc-skills-golang) | Go 编码最佳实践,涵盖错误处理、并发、泛型等 | Go 后端开发 |
 | [uber-go/guide](#uber-go-style-guide) | Uber 官方 Go 编码规范 | 代码规范参考 |
-| [golangci-lint](#golangci-lint) | Go lint 聚合工具,100+ linter | CI/CD 代码检查 |
 
 ---
 
@@ -179,29 +178,6 @@ git clone https://github.com/uber-go/guide.git
 
 ---
 
-#### golangci-lint
-
-Go 最流行的 lint 聚合工具,内置 100+ linter,可配合 AI 审查使用。
-
-**安装方式:**
-```bash
-# 安装
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-
-# 在项目中使用
-golangci-lint run
-
-# 集成到 CI/CD (GitHub Actions)
-# 见: https://golangci-lint.run/usage/install/#github-actions
-```
-
-**与 AI 配合:**
-- 在 AI 生成代码后运行 lint 检查
-- 将 lint 输出作为 AI 审查的反馈
-- 配置 `.golangci.yml` 定义项目规范
-
----
-
 ### 📋 Rules (规则集)
 
 | 规则名称 | 描述 | 严格程度 |
@@ -231,7 +207,6 @@ golangci-lint run
 | 工具名称 | 描述 | 安装方式 |
 |---------|------|---------|
 | [find-skills](https://github.com/vercel-labs/skills/tree/main/skills/find-skills) | Skills 搜索和安装工具,发现社区高质量 Skills | `npx skills add https://github.com/vercel-labs/skills --skill find-skills -g -a qwen-code -y` |
-| [golangci-lint](#golangci-lint) | Go lint 聚合工具,100+ linter | 见下方安装说明 |
 
 > 🛠️ 提升开发效率的实用工具
 
