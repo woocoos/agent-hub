@@ -57,6 +57,122 @@ Agent Hub 是一个面向 WooCoos 项目的 AI 辅助开发资源集合站。我
 
 > 💡 欢迎贡献你的 Go 开发技能包!
 
+### 🌟 推荐外部 Skills
+
+以下为社区维护的高质量 Skills,点击查看详情:
+
+| Skill | 描述 | 适用场景 |
+|-------|------|---------|
+| [samber/cc-skills-golang](#sambercc-skills-golang) | Go 编码最佳实践,涵盖错误处理、并发、泛型等 | Go 后端开发 |
+| [uber-go/guide](#uber-go-style-guide) | Uber 官方 Go 编码规范 | 代码规范参考 |
+| [golangci-lint](#golangci-lint) | Go lint 聚合工具,100+ linter | CI/CD 代码检查 |
+
+---
+
+#### 📦 Skills 安装指南
+
+**前置:** 安装 Skills CLI
+```bash
+npm install -g skills
+# 或临时使用
+npx skills
+```
+
+**Qwen Code 目录兼容性:**
+
+| 目录 | Qwen Code 是否识别 |
+|------|-------------------|
+| `~/.qwen/skills/` | ✅ **个人级(推荐)** |
+| `.qwen/skills/` | ✅ **项目级** |
+| `.agents/skills/` | ❌ 不识别 |
+
+**安装策略:**
+- 使用 `-g` 参数安装到用户全局目录(`~/.qwen/skills/`)
+- 指定 `@skill-name` 避免安装全部(42个)
+- 使用 `npx skills find [query]` 搜索结果作为筛选依据(安装量 1K+ 为稳定版本)
+
+**更新 Skills:**
+```bash
+npx skills check   # 检查更新
+npx skills update  # 更新所有已安装 skills
+```
+
+---
+
+#### samber/cc-skills-golang
+
+Go 编码最佳实践,由 [samber](https://github.com/samber) 维护,涵盖错误处理、并发安全、泛型使用等核心领域。
+
+**精选 Skills(按安装量排序):**
+
+| Skill | 安装量 | 说明 | Qwen Code 安装命令 |
+|-------|--------|------|-------------------|
+| golang-code-style | 2.6K | 代码风格规范 | `npx skills add samber/cc-skills-golang@golang-code-style -g -y` |
+| golang-performance | 2.6K | 性能优化 | `npx skills add samber/cc-skills-golang@golang-performance -g -y` |
+| golang-error-handling | 2.5K | 错误处理 | `npx skills add samber/cc-skills-golang@golang-error-handling -g -y` |
+| golang-design-patterns | 2.4K | 设计模式 | `npx skills add samber/cc-skills-golang@golang-design-patterns -g -y` |
+| golang-testing | 2.4K | 测试指南 | `npx skills add samber/cc-skills-golang@golang-testing -g -y` |
+| golang-concurrency | 2.4K | 并发编程 | `npx skills add samber/cc-skills-golang@golang-concurrency -g -y` |
+
+**一键安装全部精选:**
+```bash
+for skill in golang-code-style golang-error-handling golang-performance golang-design-patterns golang-testing golang-concurrency; do
+  npx skills add samber/cc-skills-golang@$skill -g -y
+done
+```
+
+**适用场景:**
+- Go 后端开发
+- 错误处理规范
+- 并发安全代码编写
+- 性能优化
+
+---
+
+#### Uber Go Style Guide
+
+Uber 内部 Go 编码规范的开源版本,被视为 Go 社区的权威指南。
+
+**使用方式:**
+```bash
+# 克隆仓库
+git clone https://github.com/uber-go/guide.git
+
+# 在 AI 工具中引用
+# Qwen Code: 将 style.md 内容添加到 .qwen/rules/go-style.md
+# Cursor: 添加到 .cursorrules
+```
+
+**核心内容:**
+- Go 惯用法和约定
+- 接口设计原则
+- 错误处理规范
+
+---
+
+#### golangci-lint
+
+Go 最流行的 lint 聚合工具,内置 100+ linter,可配合 AI 审查使用。
+
+**安装方式:**
+```bash
+# 安装
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# 在项目中使用
+golangci-lint run
+
+# 集成到 CI/CD (GitHub Actions)
+# 见: https://golangci-lint.run/usage/install/#github-actions
+```
+
+**与 AI 配合:**
+- 在 AI 生成代码后运行 lint 检查
+- 将 lint 输出作为 AI 审查的反馈
+- 配置 `.golangci.yml` 定义项目规范
+
+---
+
 ### 📋 Rules (规则集)
 
 | 规则名称 | 描述 | 严格程度 |
