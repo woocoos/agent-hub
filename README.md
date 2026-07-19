@@ -49,10 +49,11 @@ Agent Hub 是一个面向 WooCoos 项目的 AI 辅助开发资源集合站。我
 
 ### 🛠️ Skills (技能包)
 
-| 技能名称 | 描述 | 适用场景 |
-|---------|------|---------|
+| 技能名称                                                   | 描述                 | 适用场景               |
+|--------------------------------------------------------|--------------------|--------------------|
 | [karpathy-guidelines](skills/andrej-karpathy/SKILL.md) | 减少 LLM 编码常见错误的行为准则 | 编写、审查或重构代码时避免过度复杂化 |
-| [knockout-go(TODO)](skills/knockout-go/SKILL.md) | Knockout Go 最佳实践 | 将Knockout的特点梳理 |
+| [knockout-go(TODO)](skills/knockout-go/SKILL.md)       | Knockout Go 最佳实践   | 将Knockout的特点梳理     |
+| [sql-to-ent-schema](skills/sql-to-ent-schema/SKILL.md) | 将数据库结构同步到schema    | apis-**项目生成        |
 
 > 💡 欢迎贡献你的 Go 开发技能包!
 
