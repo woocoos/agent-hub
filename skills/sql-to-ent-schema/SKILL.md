@@ -25,8 +25,8 @@ description: 从 SQL CREATE TABLE 定义生成 ent schema Go 文件
 ## 命名转换
 
 - SQL 表名 → Go 结构体名：去业务前缀，PascalCase（如 `mat_trade_rule` → `TradeRule`）
-- SQL 表名 → 文件名：去前缀，全小写无分隔符（如 `mat_trade_rule` → `traderule.go`）
-- 常见前缀：`bas_`、`mat_`、`prd_`、`sys_`、`t_` 等
+- SQL 表名 → 文件名：**保留完整表名**，仅去掉下划线，全小写（如 `stl_partner_trade` → `stlpartnertrade.go`，`account` → `account.go`）
+- 常见结构体名前缀：`bas_`、`mat_`、`prd_`、`sys_`、`t_` 等（仅影响结构体名，不影响文件名）
 
 ## SQL 类型 → ent 字段映射
 
@@ -115,6 +115,8 @@ func (Xxx) Annotations() []schema.Annotation {
 ```go
 field.Int(schemax.FieldTenantID).StorageKey("org_id").Immutable().Comment("业务组织id").SchemaType(IntSchemaType)
 ```
+
+**字段位置规则：`org_id` 字段必须紧跟在 `id` 字段之后，放在 Fields() 的第二个位置。**
 
 需要额外导入：
 - `"github.com/woocoos/knockout-go/ent/schemax"`
@@ -329,10 +331,12 @@ schema 文件写入并通过 `go build` 编译后，**必须询问用户**：
 
 在项目根目录的 `ent_test.go` 中为新生成的 schema 添加测试用例。
 
-**如果 `ent_test.go` 不存在**，新建文件，包含基础的 `getClient` 函数和必要的 import：
+**如果 `ent_test.go` 不存在**，新建文件，包含基础的 `getClient` 函数和必要的 import。**注意：必须包含 `_ "{module_path}/ent/runtime"` 导入，否则运行测试时会报错。**
+
+包名根据项目 `go.mod` 的 module 路径推导（如 module 为 `t.qeelyn.com/pb/apis-account`，则包名为 `apisaccount_test`，runtime 导入为 `_ "t.qeelyn.com/pb/apis-account/ent/runtime"`）。
 
 ```go
-package apismeta_test
+package {package}_test
 
 import (
 	"context"
@@ -341,17 +345,17 @@ import (
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"github.com/stretchr/testify/assert"
-	"t.qeelyn.com/pb/apis-meta/ent"
+	"{module_path}/ent"
 
 	_ "github.com/go-sql-driver/mysql"
-	_ "t.qeelyn.com/pb/apis-meta/ent/runtime"
+	_ "{module_path}/ent/runtime"
 )
 
 var client *ent.Client
 
 func getClient(migration bool) *ent.Client {
 	if client == nil {
-		drvori, err := sql.Open(dialect.MySQL, "deo:deo135@$^@tcp(192.168.0.18:3306)/deo_meta?parseTime=true&loc=Asia%2FShanghai")
+		drvori, err := sql.Open(dialect.MySQL, "deo:deo135@$^@tcp(192.168.0.18:3306)/{db_name}?parseTime=true&loc=Asia%2FShanghai")
 		if err != nil {
 			panic(err)
 		}
@@ -360,6 +364,8 @@ func getClient(migration bool) *ent.Client {
 	return client
 }
 ```
+
+**如果 `ent_test.go` 已存在**，检查是否已包含 `_ "{module_path}/ent/runtime"` 导入，如果没有则添加。
 
 **测试用例模板**：
 
