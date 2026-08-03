@@ -1,7 +1,10 @@
 # 页面快速开发 Skill — 多项目通用模式
 
-> 适用项目：adminx-ui、billing-web、ems-web、oms-web、meta-web、msgcenter、settlement-web、riskctrl-web、account-web、feature-web
+> 适用项目：所有基于 knockout-js 生态的 React Web 项目
 > 技术栈：React 18 + ICE.js 3 + TypeScript + Ant Design 5 + ProComponents 2.8 + urql + GraphQL CodeGen + icestark 微前端
+>
+> **自动调用说明**：本 skill 不绑定具体项目，适用于任何使用上述技术栈的项目。
+> 使用时自动按当前项目上下文适配 `instanceName`、权限 key 风格、模块路径等配置。
 
 ---
 
@@ -39,7 +42,6 @@
 | `@knockout-js/layout` | ProLayout 布局 + KeepAlive + useLeavePrompt + CollectProviders |
 | `@knockout-js/org` | 组织权限/AppSelect/UserSelect |
 | `@knockout-js/ice-urql` | urql 多实例管理/paging/query/mutation/KoHeaders |
-| `@qeelyn-pb/ims-js` | IMS 共享服务：cacheAccount/cacheCustomer/cacheProject/batchInitCache*/AccountSelect/CustomerSelect/MaterialSelect/getListDictionaryValues |
 
 ---
 
@@ -145,10 +147,10 @@ const List = (props: { toolbarTitle?: string }) => {
       },
       {
         title: '关联实体', dataIndex: 'relatedID', width: 180, order: 8,
-        // 自定义搜索表单项
-        renderFormItem: () => <AccountSelect isBusiness />,
-        // 自定义表格显示
-        renderText: (text) => cacheAccount.get(text)?.name ?? text,
+        // 自定义搜索表单项（按项目实际业务选择器替换）
+        renderFormItem: () => <Select placeholder="请选择" />,
+        // 自定义表格显示（按项目实际缓存/映射替换）
+        renderText: (text) => text,
       },
       {
         title: '日期范围', dataIndex: 'dateRange', width: 200,
@@ -252,7 +254,7 @@ const List = (props: { toolbarTitle?: string }) => {
         });
 
         // 4) 批量初始化缓存（可选，用于关联实体名称显示）
-        // await batchInitCacheAccount(table.data.map(i => `${i.accountID}`));
+        // await batchInitCacheXxx(table.data.map(i => `${i.xxxID}`));
 
         setDataSource(table.data);
         setSelectedRowKeys([]);
@@ -751,18 +753,17 @@ src/services/
 
 ### instanceName 注册表
 
+> **项目适配**：每个项目在 `src/services/index.ts` 中定义自己的 `instanceName`，
+> 值对应 `@knockout-js/ice-urql` 中注册的 GraphQL 端点名称。
+> 编写服务函数时，从当前项目的 `instanceName` 中查找对应后端服务。
+
 ```ts
 // src/services/index.ts
+// 每个项目按需定义，以下为示例结构
 export const instanceName = {
-  METAGO: 'meta-go',
-  ACCOUNTGO: 'account-go',
-  RISKCTRLGO: 'riskctrl-go',
-  FEATUREGO: 'feature-go',
-  CLEARING: 'clearing',
-  FEATURE: 'feature',
-  BILLING: 'billing',
-  EMS: 'ems',
-  TRADINGGATEWAY: 'trading-gateway',
+  // 按项目实际后端服务配置
+  DEFAULT: 'default',
+  // ... 其他服务实例
 };
 ```
 
@@ -808,7 +809,7 @@ export const getXxxList = async (gather: {
       field: XxxOrderField.CreatedAt,
     },
   }, gather.current || 1, {
-    instanceName: instanceName.XXX,  // 非 default 实例时需指定
+    instanceName: instanceName.XXX,  // 从当前项目 services/index.ts 查找
     fetchOptions: { headers: KoHeaders.noCache },
   });
   return result.data?.xxxs;
@@ -899,12 +900,12 @@ export const isCanDelete = (record: Xxx): {
 
 ```graphql
 # 查询：{service}{Entity}{Action}
-query emsOrderList($first: Int, ...) { ... }
-query omsConditionOrderList(...) { ... }
+query userOrderList($first: Int, ...) { ... }
+query userConditionOrderList(...) { ... }
 query bizTypes($first: Int, ...) { ... }
 
 # Mutation：{service}{Action}
-mutation emsCancelOrder($req: CancelOrderRequest) { ... }
+mutation userCancelOrder($req: CancelOrderRequest) { ... }
 mutation createBizType($input: CreateBizTypeInput!) { ... }
 ```
 
@@ -937,7 +938,7 @@ menu.json（页面路由权限） → userPermissions API（后端权限列表�
 
 | 层级 | 控制目标 | 配置位置 | 示例 |
 |------|---------|---------|------|
-| 路由权限 | 页面能否访问 | `pageConfig.auth` + `menu.json` | `/meta/biz-type` |
+| 路由权限 | 页面能否访问 | `pageConfig.auth` + `menu.json` | `/ui/biz-type` |
 | 操作权限 | 按钮能否显示 | `<Auth authKey="...">` | `createBizType` |
 | 开发模式 | 全部权限放行 | `NODE_ENV=development` | 自动通过 |
 
@@ -948,7 +949,7 @@ import { definePageConfig } from 'ice';
 
 // auth 数组中的 path 必须与 menu.json 中的 path 完全一致
 export const pageConfig = definePageConfig(() => ({
-  auth: ['/meta/biz-type'],
+  auth: ['/ui/biz-type'],
 }));
 ```
 
@@ -960,8 +961,8 @@ export const pageConfig = definePageConfig(() => ({
     "name": "基础数据",
     "icon": "icon-icon_zhanghu1",
     "children": [
-      { "name": "业务类型管理", "path": "/meta/biz-type" },
-      { "name": "交易类型管理", "path": "/meta/trade-type" }
+      { "name": "业务类型管理", "path": "/ui/biz-type" },
+      { "name": "交易类型管理", "path": "/ui/trade-type" }
     ]
   }
 ]
@@ -976,7 +977,7 @@ export const pageConfig = definePageConfig(() => ({
 2. getMenuAppActions() → 从 menu.json 提取所有 path 作为初始权限（开发环境全部为 true）
 3. userPermissions(ICE_APP_CODE, headers) → 从后端获取用户操作权限列表
 4. 后端返回 ups[] → 每个 item.name 就是权限 key（如 "createBizType"）
-5. 合并到 initialAuth → { "/meta/biz-type": true, "createBizType": true, ... }
+5. 合并到 initialAuth → { "/ui/biz-type": true, "createBizType": true, ... }
 ```
 
 **app.tsx 中的关键代码：**
@@ -1006,14 +1007,14 @@ export const authConfig = defineAuthConfig(async (appData) => {
 
 #### 权限 Key 命名规则
 
-权限 key 由后端 `AppAction` 表管理，前端通过 `userPermissions()` API 获取。有两种命名风格：
+> **项目适配**：不同项目的权限 key 风格可能不同，开发前参考同项目已有页面确认风格。
 
-| 风格 | 适用项目 | 规则 | 示例 |
+| 风格 | 适用项目类型 | 规则 | 示例 |
 |------|---------|------|------|
-| camelCase 动词+实体 | meta-web、billing-web、riskctrl-web | `create/update/delete` + 实体名 | `createBizType`、`updateUnit`、`deleteTradeRule` |
-| snake_case 应用\_实体\_操作 | account-web 等 | `app_entity_action_btn` | `account_unit_add_btn`、`account_unit_config_btn` |
+| camelCase 动词+实体 | 多数项目 | `create/update/delete` + 实体名 | `createBizType`、`updateUnit`、`deleteTradeRule` |
+| snake_case 应用\_实体\_操作 | 部分项目 | `app_entity_action_btn` | `account_unit_add_btn`、`account_unit_config_btn` |
 
-> **重要**：开发新页面前需确认后端已配置对应权限 key。不同项目风格不同，参考同项目已有页面。
+> **重要**：开发新页面前需确认后端已配置对应权限 key。参考当前项目已有页面判断风格。
 
 #### 开发环境权限自动放行
 
@@ -1343,14 +1344,13 @@ onMousedown({
 
 用于将 **用户 ID**（`createdBy` / `updatedBy` / `traderID` / `owner` 等数字字段）解析为用户显示名（`displayName`）。
 
-### 两个来源 — 不要混淆
+### 适用场景
 
 | 缓存 | 解析对象 | 适用字段 | 来源 |
 |------|---------|---------|------|
 | **cacheUser** | 系统用户（会员/员工） | `createdBy` / `updatedBy` / `traderID` / `owner` / 任意 user ID | `@knockout-js/api` |
-| **cacheAccount** | 交易账户 / 业务账户 | `accountID` / 业务实体 ID | `@qeelyn-pb/ims-js` |
 
-"创建人" 通常是 user ID → 用 `cacheUser`；"交易账户" → 用 `cacheAccount`。
+"创建人"、"更新人" 等通常是 user ID → 用 `cacheUser`。
 
 ### 导入
 
@@ -1433,7 +1433,7 @@ request={async (params) => {
 
 ```ts
 // src/pkg/localStore.ts
-const module = '项目名';  // 如 'meta'、'oms'、'billing'
+const module = '项目名';  // 如 'meta'、'user'、'msg' — 按当前项目配置
 
 getItem<T>(key: string): T | null    // 读取
 setItem<T>(key: string, value: T)    // 写入
@@ -1489,18 +1489,17 @@ appDispatcher.updateLocale('en-US');
 
 ```ts
 import dayjs from 'dayjs';
-import { getDate } from '@qeelyn-pb/ims-js/esm/utils';
 
 // 格式化
 dayjs().format('YYYY-MM-DD');
 dayjs().format('YYYY-MM-DDTHH:mm:ss.SSSZ');
 
 // 日期范围 → WhereInput
-where.createdAtGTE = getDate(params.dateRange[0], 'YYYY-MM-DDT00:00:00Z');
-where.createdAtLTE = getDate(params.dateRange[1], 'YYYY-MM-DDT23:59:59Z');
+where.createdAtGTE = dayjs(params.dateRange[0]).format('YYYY-MM-DDT00:00:00Z');
+where.createdAtLTE = dayjs(params.dateRange[1]).format('YYYY-MM-DDT23:59:59Z');
 
 // 表格显示
-render: (_, record) => getDate(record.createdAt, 'YYYY-MM-DD')
+render: (_, record) => dayjs(record.createdAt).format('YYYY-MM-DD')
 ```
 
 ---
@@ -1583,8 +1582,8 @@ export const EnumUnitUnitState = {
 | 校验函数 | `is` + 动作 | `isCancelOrder` |
 | 事件处理 | `on` + 动作 | `onClick`、`onChange`、`onFinish` |
 | 类型/接口 | PascalCase | `OrderWhereInput`、`MyComponentRef` |
-| 页面文件 | `index.tsx` | `pages/ems/list/index.tsx` |
-| 服务文件 | `index.ts` | `services/ems/index.ts` |
+| 页面文件 | `index.tsx` | `pages/ui/list/index.tsx` |
+| 服务文件 | `index.ts` | `services/ui/index.ts` |
 
 ---
 
@@ -1687,16 +1686,6 @@ useEffect(() => {
 }
 ```
 
-### IMS 字典工具（跨项目复用）
-
-```tsx
-import { getListDictionaryValues } from '@qeelyn-pb/ims-js/esm/services/meta';
-
-// 批量获取多个字典类型
-const dictMap = await getListDictionaryValues(['BizModule', 'OrderType']);
-// dictMap: { BizModule: [...], OrderType: [...] }
-```
-
 ### AppSelect 应用选择器
 
 ```tsx
@@ -1720,44 +1709,6 @@ import { AppSelect } from '@knockout-js/org';
 <AppSelect
   value={appID}
   onChange={(val) => setAppID(val)}
-/>
-```
-
-### AccountSelect / CustomerSelect 业务选择器
-
-```tsx
-import { AccountSelect, CustomerSelect, MaterialSelect } from '@qeelyn-pb/ims-js/esm/components';
-import { cacheAccount, cacheCustomer, cacheProject } from '@qeelyn-pb/ims-js/esm/utils';
-
-// AccountSelect - 账户选择
-<ProFormSelect
-  name="accountID"
-  label="账户"
-  renderFormItem={() => <AccountSelect isBusiness />}
-/>
-
-// 表格中显示账户名称
-{
-  title: '账户', dataIndex: 'accountID', width: 150,
-  renderFormItem: () => <AccountSelect isBusiness />,
-  renderText: (text) => cacheAccount.get(text)?.name ?? text,
-}
-
-// 批量初始化缓存（在列表加载后调用）
-await batchInitCacheAccount(table.data.map(i => `${i.accountID}`));
-
-// CustomerSelect - 客户选择
-<ProFormSelect
-  name="customerID"
-  label="客户"
-  renderFormItem={() => <CustomerSelect />}
-/>
-
-// MaterialSelect - 合约/标的选择
-<ProFormSelect
-  name="materialID"
-  label="合约"
-  renderFormItem={() => <MaterialSelect />}
 />
 ```
 
@@ -1927,9 +1878,7 @@ import { gql } from '@/generated/order';
 export default {
   // 指定 documents 路径，确保包含服务目录
   documents: [
-    "src/services/ems/**/*.ts",
-    "src/services/oms/**/*.ts",
-    "src/services/meta/**/*.ts",
+    "src/services/**/*.ts",  // 按项目实际模块目录配置
   ],
   // 输出生成文件到 src/generated/
   generates: {
@@ -2234,6 +2183,5 @@ const onDrop = (info: any) => {
 - [ ] **更新接口必须用 `updateFormat(values, info)` 处理**，不直接传整个表单对象
 - [ ] `saveDataSource` / `delDataSource` 本地更新（不重新请求列表）
 - [ ] `onMousedown` 处理行点击与文本选中冲突
-- [ ] 字典下拉用 `getDictionaryValueList`（meta 项目）
-- [ ] 业务选择器用 `AccountSelect` / `CustomerSelect`（IMS 项目）
+- [ ] 字典下拉用 `getDictionaryValueList`（按项目实际字典服务替换）
 - [ ] 非标准 Query/Mutation 按 Schema 定义参数

@@ -1,20 +1,23 @@
 # GraphQL 接口开发 Skill — *.graphql → services → generated 全流程
 
-> 适用项目：adminx-ui、billing-web、ems-web、oms-web、meta-web、msgcenter、settlement-web、riskctrl-web、account-web、feature-web
+> 适用项目：所有基于 knockout-js 生态的 React Web 项目
 > 核心工具链：GraphQL Code Generator (client-preset) + urql + @knockout-js/ice-urql
+>
+> **自动调用说明**：本 skill 不绑定具体项目，适用于任何使用上述技术栈的项目。
+> 使用时自动按当前项目的 `script/gqlgen.ts` 和 `src/services/index.ts` 适配模块与实例配置。
 
 ---
 
 ## 使用方式
 
 当你需要为项目新增或修改 GraphQL 接口时，按本 skill 操作：
-1. 确认目标模块是否已有 schema（查 §三 映射表）
+1. 确认目标模块是否已有 schema（查 `script/generated/`）
 2. 如需新 schema，先拉取（`pnpm gqlgen:schema-ast`）
 3. 在 `src/services/<模块>/` 中编写 `gql()` 操作
-4. 在 `src/services/<模块>/enums.ts` 中编写枚举映射（查 §十一）
+4. 在 `src/services/<模块>/enums.ts` 中编写枚举映射（查 §十）
 5. 运行 `pnpm gqlgen` 生成类型
 6. 从 `@/generated/<模块>` 导入类型使用
-7. **已存在的接口不要重复编写**（查 §五 已有接口清单）
+7. **已存在的接口不要重复编写**（查项目已有 services 目录）
 
 ---
 
@@ -60,7 +63,7 @@ const schemaAstConfig: CodegenConfig = {
         },
       }
     },
-    // ... 更多模块
+    // ... 更多模块（按项目实际后端服务添加）
   },
 }
 
@@ -132,10 +135,8 @@ import {
 // 3. 导入 urql 请求辅助函数
 import { KoHeaders, mutation, paging, query } from '@knockout-js/ice-urql/request';
 
-// 4. 如果需要非 default 实例，导入 instanceName
+// 4. 如果需要非 default 实例，从当前项目 services/index.ts 导入 instanceName
 import { instanceName } from '..';
-// 或使用 @knockout-js/api 的 instanceName
-import { instanceName as koInstanceName } from '@knockout-js/api';
 
 // ====== 查询定义 ======
 const queryXxxList = gql(`
@@ -166,7 +167,7 @@ export const getXxxList = async (gather: {
       field: XxxOrderField.CreatedAt,
     },
   }, gather.current || 1, {
-    instanceName: instanceName.XXX,     // 非 default 实例时必须指定
+    instanceName: instanceName.XXX,     // 非 default 实例时必须指定（从当前项目 instanceName 查找）
     fetchOptions: { headers: KoHeaders.noCache },
   });
   return result.data?.xxxs;
@@ -204,79 +205,50 @@ pnpm gqlgen:watch
 
 ---
 
-## 三、项目 × 模块完整映射表
+## 三、项目模块映射（适配指南）
 
-### adminx-ui
+> **项目适配**：每个项目的模块映射不同，开发前先查看当前项目的以下文件确认配置：
+> - `script/gqlgen.ts` — 查看有哪些模块的 Schema 和 documents 配置
+> - `src/services/index.ts` — 查看 `instanceName` 注册了哪些后端实例
+> - `script/generated/` — 查看已拉取的 Schema 文件
+> - `src/generated/` — 查看已生成的类型目录
 
-| Schema 文件 | Service 目录 | Generated 目录 | 后端端点 | 说明 |
-|-------------|-------------|---------------|---------|------|
-| `adminx.graphql` | `src/services/adminx/` | `src/generated/adminx/` | 本地 `../knockout/api/graphql/*.graphql` 或 API URL | adminx 后台管理 |
+### 模块映射关系
 
-### billing-web
+每个项目的模块遵循统一的目录结构约定：
 
-| Schema 文件 | Service 目录 | Generated 目录 | 后端端点 | urql 实例名 |
-|-------------|-------------|---------------|---------|------------|
-| `billing.graphql` | `src/services/billing/` | `src/generated/billing/` | `192.168.0.13:32601/graphql/query` | `default` |
-| `meta-go.graphql` | `src/services/meta-go/` | `src/generated/meta-go/` | `192.168.0.13:30446/graphql/query` | `METAGO` |
-
-### meta-web
-
-| Schema 文件 | Service 目录 | Generated 目录 | 后端端点 | urql 实例名 |
-|-------------|-------------|---------------|---------|------------|
-| `meta.graphql` | `src/services/meta/` | `src/generated/meta/` | `192.168.0.13:30446/graphql/query` | `default` |
-
-### ems-web / oms-web（共享相同的模块映射）
-
-| Schema 文件 | Service 目录 | Generated 目录 | 后端端点 | urql 实例名 |
-|-------------|-------------|---------------|---------|------------|
-| `oms.graphql` | `src/services/oms/` | `src/generated/oms/` | `:30720/graphql/query` | `default`(oms) / 按实例 |
-| `ems.graphql` | `src/services/ems/` | `src/generated/ems/` | `:30908/graphql/query` | `EMS` |
-| `billing.graphql` | `src/services/billing/` | `src/generated/billing/` | `:32601/graphql/query` | `BILLING` |
-| `account-go.graphql` | `src/services/account-go/` | `src/generated/account-go/` | `:31351/graphql/query` | `ACCOUNTGO` |
-| `meta-go.graphql` | `src/services/meta-go/` | `src/generated/meta-go/` | `:30446/graphql/query` | `METAGO` |
-| `riskctrl-go.graphql` | `src/services/riskctrl-go/` | `src/generated/riskctrl-go/` | `:30956/graphql/query` | `RISKCTRLGO` |
-| `feature-go.graphql` | `src/services/feature-go/` | `src/generated/feature-go/` | `:31828/graphql/query` | `FEATUREGO` |
-| `trading-gateway.graphql` | `src/services/trading-gateway/` | `src/generated/trading-gateway/` | `:31790/graphql/query` | `TRADINGGATEWAY` |
-| `account.graphql` | `src/services/account/` | `src/generated/account/` | `:31519/gql/accountv_gql` | ims-js 管理 |
-| `customer.graphql` | `src/services/customer/` | `src/generated/customer/` | `:31519/gql/customer_gql` | ims-js 管理 |
-| `meta.graphql` | `src/services/meta/` | `src/generated/meta/` | `:31519/gql/meta_gql` | ims-js 管理 |
-| `project.graphql` | `src/services/project/` | `src/generated/project/` | `:31519/gql/project_gql` | ims-js 管理 |
-| `clearing.graphql` | `src/services/clearing/` | `src/generated/clearing/` | `:31519/gql/clearing_gql` | ims-js 管理 |
-| `feature.graphql` | `src/services/feature/` | `src/generated/feature/` | `:31519/gql/feature_gql` | ims-js 管理 |
+```
+<模块>.graphql (Schema)          → script/generated/<模块>.graphql
+src/services/<模块>/**/*.ts      → gql() 操作定义
+src/generated/<模块>/            → 生成的 TypeScript 类型
+```
 
 ### instanceName 注册表
 
-各项目 `src/services/index.ts` 中导出的实例名常量：
+> **项目适配**：每个项目在 `src/services/index.ts` 中定义自己的 `instanceName`。
+> 编写服务函数时，从当前项目的 `instanceName` 中查找对应后端服务。
 
 ```ts
-// ems-web / oms-web
+// src/services/index.ts — 按项目实际后端服务配置
 export const instanceName = {
-  METAGO: 'meta-go',
-  ACCOUNTGO: 'account-go',
-  RISKCTRLGO: 'riskctrl-go',
-  FEATUREGO: 'feature-go',
-  CLEARING: 'clearing',
-  FEATURE: 'feature',
-  BILLING: 'billing',
-  EMS: 'ems',
-  TRADINGGATEWAY: 'trading-gateway',
+  // 示例结构，具体值因项目而异
+  DEFAULT: 'default',
+  // XXX: 'xxx-service',
+  // ...
 };
-
-// billing-web
-export const instanceName = {
-  billing: "billing",
-  METAGO: "meta-go",
-};
-
-// meta-web / adminx-ui
-export const instanceName = {};  // 使用 default 实例
 ```
+
+### 如何确认模块对应的 urql 实例
+
+1. 查看 `src/services/index.ts` 中的 `instanceName` 导出
+2. 查看 `app.tsx` 中 `urqlConfig` 的实例注册
+3. 如果服务函数不传 `instanceName`，则使用 `default` 实例
 
 ---
 
 ## 四、urql 实例与 default 的关系
 
-- **每个项目有一个 `default` urql 实例**，指向该项目的主后端端点（如 oms-web 的 default → `/api-oms/graphql/query`）
+- **每个项目有一个 `default` urql 实例**，指向该项目的主后端端点
 - `default` 实例在 `app.tsx` 的 `urqlConfig` 中配置了完整的 token 刷新、租户头、i18n、错误处理
 - **其他实例**通常只需配置 `url`，不需要完整 auth 配置
 - 调用 `query()`/`paging()`/`mutation()` 时：
@@ -289,64 +261,29 @@ const result = await query(doc, vars);
 
 // 使用指定实例
 const result = await query(doc, vars, {
-  instanceName: instanceName.EMS,
+  instanceName: instanceName.XXX,  // 从当前项目 instanceName 查找
   fetchOptions: { headers: KoHeaders.noCache },
 });
 ```
 
 ---
 
-## 五、各项目已有接口清单
+## 五、已有接口检查
 
-> ⚠️ 以下接口已在 service 文件中定义并生成了类型。新增接口前请先检查此清单，**不要重复创建已存在的操作**。
+> ⚠️ 新增接口前先检查当前项目 `src/services/` 目录中是否已存在对应操作，**不要重复创建已存在的操作**。
 
-<!-- 此处由 agent 扫描结果填充 -->
+检查方法：
 
-### adminx-ui
+```bash
+# 扫描当前项目所有 gql() 操作
+grep -r "gql(" src/services/ --include="*.ts" -l
 
-#### adminx 模块 (`src/services/adminx/`)
+# 查看已生成的类型目录
+ls src/generated/
 
-| 操作名 | 类型 | 文件 |
-|--------|------|------|
-| *(由扫描 agent 填充)* | | |
-
-### billing-web
-
-#### billing 模块 (`src/services/billing/`)
-
-| 操作名 | 类型 | 文件 |
-|--------|------|------|
-| *(由扫描 agent 填充)* | | |
-
-#### meta-go 模块 (`src/services/meta-go/`)
-
-| 操作名 | 类型 | 文件 |
-|--------|------|------|
-| *(由扫描 agent 填充)* | | |
-
-### meta-web
-
-#### meta 模块 (`src/services/meta/`)
-
-| 操作名 | 类型 | 文件 |
-|--------|------|------|
-| *(由扫描 agent 填充)* | | |
-
-### ems-web / oms-web
-
-*(ems-web 和 oms-web 共享几乎相同的模块结构，接口清单也高度一致)*
-
-#### oms 模块 (`src/services/oms/`)
-| 操作名 | 类型 | 文件 |
-|--------|------|------|
-| *(由扫描 agent 填充)* | | |
-
-#### ems 模块 (`src/services/ems/`)
-| 操作名 | 类型 | 文件 |
-|--------|------|------|
-| *(由扫描 agent 填充)* | | |
-
-*(其他模块同理...)*
+# 查看已拉取的 Schema
+ls script/generated/
+```
 
 ---
 
@@ -356,19 +293,17 @@ const result = await query(doc, vars, {
 
 ```graphql
 # 格式：{service}{Entity}{Action}
-query emsOrderList($first: Int, ...) { ... }
-query omsConditionOrderList(...) { ... }
+query userOrderList($first: Int, ...) { ... }
+query userConditionOrderList(...) { ... }
 query bizTypes($first: Int, ...) { ... }
 query tradeTypes($first: Int, ...) { ... }
-query billingDetails(...) { ... }
 ```
 
 ### Mutation 命名
 
 ```graphql
 # 格式：{service}{Action} 或 {action}{Entity}
-mutation emsCancelOrder($req: CancelOrderRequest) { ... }
-mutation emsNewOrder($req: NewOrderRequest) { ... }
+mutation userCancelOrder($req: CancelOrderRequest) { ... }
 mutation createBizType($input: CreateBizTypeInput!) { ... }
 mutation updateBizType($id: ID!, $input: UpdateBizTypeInput!) { ... }
 mutation deleteBizType($id: ID!) { ... }
@@ -530,27 +465,7 @@ pnpm gqlgen              # 生成类型
 
 ---
 
-## 十、开发检查清单
-
-新增/修改 GraphQL 接口时逐项确认：
-
-- [ ] 确认目标模块的 schema 文件存在（`script/generated/<模块>.graphql`）
-- [ ] 如果 schema 有更新，已运行 `pnpm gqlgen:schema-ast`
-- [ ] gql() 操作写在 `src/services/<模块>/**/*.ts` 下
-- [ ] gql 标签从正确的 `@/generated/<模块>` 导入
-- [ ] 类型从 `@/generated/<模块>/graphql` 导入
-- [ ] 操作名遵循命名约定（`{service}{Entity}{Action}`）
-- [ ] 已运行 `pnpm gqlgen` 生成类型
-- [ ] **没有重复创建已存在的接口**（查 §五 清单）
-- [ ] 非 default 实例的操作传了正确的 `instanceName`
-- [ ] 服务函数遵循 `getXxx` / `mutXxx` 命名
-- [ ] 枚举映射已写在 `src/services/<模块>/enums.ts` 中（查 §十一 规范）
-- [ ] 枚举映射已从 `src/services/<模块>/index.ts` 统一 re-export
-- [ ] `src/generated/` 下的文件没有被手动修改
-
----
-
-## 十一、枚举映射生成规范
+## 十、枚举映射生成规范
 
 > **核心原则**：每次根据 schema 生成 services 时，**必须同步**生成该 schema 中所有枚举类型的映射，放入 `enums.ts`，不得遗漏。
 
@@ -627,8 +542,8 @@ Int 型枚举的值及含义需要从 schema 注释（`"""状态,-1,失效;0:初
 src/services/<模块>/
 ├── index.ts          # 主服务 + re-export 所有 enums
 ├── enums.ts          # ← 枚举映射集中放这里
-├── riskConfig.ts
-├── riskStrategy.ts
+├── xxxConfig.ts
+├── xxxStrategy.ts
 └── ...
 ```
 
@@ -637,8 +552,8 @@ src/services/<模块>/
 ```ts
 // —— 枚举映射（UI 下拉 / 表格列 用） ——
 export {
-  EnumRiskConfigState,
-  EnumRiskKindKindType,
+  EnumXxxConfigState,
+  EnumXxxKindKindType,
   // ... 所有 Enum
 } from './enums';
 ```
@@ -647,16 +562,16 @@ export {
 
 ```tsx
 // ProTable 列 — 直接传 valueEnum（同时获得搜索下拉 + 表格显示）
-{ title: '状态', dataIndex: 'state', valueEnum: EnumRiskConfigState }
+{ title: '状态', dataIndex: 'state', valueEnum: EnumXxxConfigState }
 
 // Tag 渲染
-<Tag color={EnumRiskConfigState[record.state]?.tagColor}>
-  {EnumRiskConfigState[record.state]?.text}
+<Tag color={EnumXxxConfigState[record.state]?.tagColor}>
+  {EnumXxxConfigState[record.state]?.text}
 </Tag>
 
 // Select 下拉 — Object.entries 转换
 <Select
-  options={Object.entries(EnumRiskConfigState).map(([value, { text }]) => ({
+  options={Object.entries(EnumXxxConfigState).map(([value, { text }]) => ({
     value: Number(value), label: text,
   }))}
 />
@@ -665,3 +580,23 @@ export {
 ### 7. 检查步骤
 
 生成 services 后，对照 `src/generated/<模块>/graphql.ts` 中的 `export enum` 列表，**逐个确认**每个 GraphQL enum 都已生成对应的 `Enum*` 映射。同时检查 schema 注释中的 Int 型状态枚举是否也一并处理。
+
+---
+
+## 十一、开发检查清单
+
+新增/修改 GraphQL 接口时逐项确认：
+
+- [ ] 确认目标模块的 schema 文件存在（`script/generated/<模块>.graphql`）
+- [ ] 如果 schema 有更新，已运行 `pnpm gqlgen:schema-ast`
+- [ ] gql() 操作写在 `src/services/<模块>/**/*.ts` 下
+- [ ] gql 标签从正确的 `@/generated/<模块>` 导入
+- [ ] 类型从 `@/generated/<模块>/graphql` 导入
+- [ ] 操作名遵循命名约定（`{service}{Entity}{Action}`）
+- [ ] 已运行 `pnpm gqlgen` 生成类型
+- [ ] **没有重复创建已存在的接口**（查 `src/services/` 目录）
+- [ ] 非 default 实例的操作传了正确的 `instanceName`
+- [ ] 服务函数遵循 `getXxx` / `mutXxx` 命名
+- [ ] 枚举映射已写在 `src/services/<模块>/enums.ts` 中（查 §十 规范）
+- [ ] 枚举映射已从 `src/services/<模块>/index.ts` 统一 re-export
+- [ ] `src/generated/` 下的文件没有被手动修改
