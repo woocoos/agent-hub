@@ -25,8 +25,8 @@ description: 从 SQL CREATE TABLE 定义生成 ent schema Go 文件
 ## 命名转换
 
 - SQL 表名 → Go 结构体名：去业务前缀，PascalCase（如 `mat_trade_rule` → `TradeRule`）
-- SQL 表名 → 文件名：**保留完整表名**，仅去掉下划线，全小写（如 `stl_partner_trade` → `stlpartnertrade.go`，`account` → `account.go`）
-- 常见结构体名前缀：`bas_`、`mat_`、`prd_`、`sys_`、`t_` 等（仅影响结构体名，不影响文件名）
+- SQL 表名 → 文件名：与结构体名一致，去业务前缀，全小写（如 `mat_trade_rule` → `traderule.go`，`bas_auto_code` → `autocode.go`，`account` → `account.go`）
+- 常见业务前缀：`bas_`、`mat_`、`prd_`、`sys_`、`stl_`、`t_` 等（结构体名和文件名均去掉）
 
 ## SQL 类型 → ent 字段映射
 
@@ -63,6 +63,70 @@ description: 从 SQL CREATE TABLE 定义生成 ent schema Go 文件
 
 SQL 字段的 COMMENT 映射为 `.Comment("...")`，放在修饰链合适位置（通常在 Annotations 之前）。
 
+## ID 字段处理
+
+根据 SQL 中 `id` 字段的类型和属性，决定 ID 的生成策略：
+
+| SQL 定义 | 处理方式 | 说明 |
+|----------|----------|------|
+| `id` bigint NOT NULL AUTO_INCREMENT | Mixin 中添加 `schemax.IntID{}`，Fields() 中**不出现** id 字段 | 数据库自增 int64 |
+| `id` bigint NOT NULL | Mixin 中添加 `schemax.SnowFlakeID{}`，Fields() 中**不出现** id 字段 | 雪花算法生成 int64 |
+| `id` int NOT NULL AUTO_INCREMENT | Fields() 中保留 `field.Int("id").SchemaType(IntSchemaType)`，Mixin 中**不添加** ID mixin | 数据库自增 int32 |
+
+### 示例
+
+**情况一：`id` bigint NOT NULL AUTO_INCREMENT**
+```go
+func (Xxx) Mixin() []ent.Mixin {
+    return []ent.Mixin{
+        schemax.IntID{},
+        schemax.AuditMixin{},
+    }
+}
+
+func (Xxx) Fields() []ent.Field {
+    return []ent.Field{
+        // id 字段由 IntID mixin 提供，此处不再定义
+        // ...其他字段
+    }
+}
+```
+
+**情况二：`id` bigint NOT NULL（无 AUTO_INCREMENT）**
+```go
+func (Xxx) Mixin() []ent.Mixin {
+    return []ent.Mixin{
+        schemax.SnowFlakeID{},
+        schemax.AuditMixin{},
+    }
+}
+
+func (Xxx) Fields() []ent.Field {
+    return []ent.Field{
+        // id 字段由 SnowFlakeID mixin 提供，此处不再定义
+        // ...其他字段
+    }
+}
+```
+
+**情况三：`id` int NOT NULL AUTO_INCREMENT**
+```go
+func (Xxx) Mixin() []ent.Mixin {
+    return []ent.Mixin{
+        schemax.AuditMixin{},
+    }
+}
+
+func (Xxx) Fields() []ent.Field {
+    return []ent.Field{
+        field.Int("id").SchemaType(IntSchemaType),
+        // ...其他字段
+    }
+}
+```
+
+**注意：** ID mixin 放在 AuditMixin 之前。当同时存在租户字段时，ID mixin 的顺序不受影响。
+
 ## 审计字段 → Mixin（条件生成）
 
 **每个 schema 都必须生成 `Mixin()` 方法**，但内容根据审计字段情况决定：
@@ -86,22 +150,28 @@ func (Xxx) Mixin() []ent.Mixin {
 }
 ```
 
-### 租户字段（org_id）→ TenantMixin
+### 租户字段（org_id / tenant_id）→ TenantMixin + helper/client.go 注册
 
-**当表中存在 `org_id` 字段时**，需要额外添加 TenantMixin 和对应 Annotation：
+**当表中存在 `org_id` 或 `tenant_id` 字段时**，需要做两件事：
+1. schema 文件中添加 Annotation 和 Fields 定义（**不在 Mixin() 中添加 TenantMixin**）
+2. 在 `helper/client.go` 的 `InitTenantClient` 函数中添加 interceptor 注册行
 
-Mixin 中添加 TenantMixin：
+逻辑字段名统一使用 `schemax.FieldTenantID`（值为 `"tenant_id"`），根据 SQL 实际列名决定是否加 `StorageKey`：
+
+#### 情况一：SQL 列名为 `org_id`
+
+需要 `.StorageKey("org_id")` 将逻辑名 `tenant_id` 映射到数据库列 `org_id`。
+
+**Mixin() 中不添加 TenantMixin**，只保留 AuditMixin：
 ```go
 func (Xxx) Mixin() []ent.Mixin {
     return []ent.Mixin{
         schemax.AuditMixin{},
-        schemax.NewTenantMixin[intercept.Query, *gen.Client]("apis-meta", intercept.NewQuery,
-            schemax.WithTenantMixinStorageKey[intercept.Query, *gen.Client]("org_id")),
     }
 }
 ```
 
-同时在 schema 的 `Annotations()` 方法中添加 `schemax.TenantField`：
+Annotations 中添加 `schemax.TenantField("org_id")`：
 ```go
 func (Xxx) Annotations() []schema.Annotation {
     return []schema.Annotation{
@@ -111,23 +181,66 @@ func (Xxx) Annotations() []schema.Annotation {
 }
 ```
 
-`org_id` 字段本身在 `Fields()` 中定义为：
+Fields() 中定义为：
 ```go
 field.Int(schemax.FieldTenantID).StorageKey("org_id").Immutable().Comment("业务组织id").SchemaType(IntSchemaType)
 ```
 
-**字段位置规则：`org_id` 字段必须紧跟在 `id` 字段之后，放在 Fields() 的第二个位置。**
+#### 情况二：SQL 列名为 `tenant_id`
 
-需要额外导入：
+逻辑名与数据库列名一致，**不需要** `.StorageKey()`。
+
+**Mixin() 中不添加 TenantMixin**，只保留 AuditMixin：
+```go
+func (Xxx) Mixin() []ent.Mixin {
+    return []ent.Mixin{
+        schemax.AuditMixin{},
+    }
+}
+```
+
+Annotations 中添加 `schemax.TenantField("tenant_id")`：
+```go
+func (Xxx) Annotations() []schema.Annotation {
+    return []schema.Annotation{
+        entsql.Annotation{Table: "table_name"},
+        schemax.TenantField("tenant_id"),
+    }
+}
+```
+
+Fields() 中定义为：
+```go
+field.Int(schemax.FieldTenantID).Immutable().Comment("业务组织id").SchemaType(IntSchemaType)
+```
+
+#### 通用规则
+
+**字段位置规则：租户字段必须紧跟在 `id` 字段之后，放在 Fields() 的第二个位置。**
+
+schema 文件需要额外导入：
 - `"github.com/woocoos/knockout-go/ent/schemax"`
-- `gen "t.qeelyn.com/pb/apis-meta/ent"` — 项目 ent 包，别名 `gen`
-- `"t.qeelyn.com/pb/apis-meta/ent/intercept"`
 
-TenantMixin 与 AuditMixin 同时存在时，两者都放在 Mixin() 返回中。
+**不再需要**在 schema 中导入 `gen` 和 `intercept` 包。
 
-### org_id 索引字段
+#### 更新 helper/client.go
 
-当索引包含 `org_id` 字段时，使用 `schemax.FieldTenantID` 替代字符串 `"org_id"`：
+schema 生成后，需要在 `helper/client.go` 的 `InitTenantClient` 函数中追加一行 interceptor 注册：
+
+```go
+client.{EntityName}.Intercept(bofTenant.TenantOnlyInterceptors()...)
+```
+
+例如生成了 `TradeRule` schema，则添加：
+```go
+client.TradeRule.Intercept(bofTenant.TenantOnlyInterceptors()...)
+```
+
+该行追加在 `InitTenantClient` 函数体末尾，与其他 `client.Xxx.Intercept(...)` 行保持一致风格。
+
+### 租户索引字段
+
+当索引包含租户字段（`org_id` 或 `tenant_id`）时，统一使用 `schemax.FieldTenantID` 替代原始列名字符串：
 
 ```go
 // 正确
@@ -135,6 +248,8 @@ index.Fields(schemax.FieldTenantID, "dictionary_type_id", "code").Unique()
 
 // 错误
 index.Fields("org_id", "dictionary_type_id", "code").Unique()
+// 错误
+index.Fields("tenant_id", "dictionary_type_id", "code").Unique()
 ```
 
 ## 特殊字段规则
@@ -261,8 +376,6 @@ import (
     // "entgo.io/ent/schema/edge"
     // "github.com/woocoos/knockout-go/ent/schemax"
     // "github.com/woocoos/knockout-go/ent/schemax/fieldx"
-    // gen "t.qeelyn.com/pb/apis-meta/ent"
-    // "t.qeelyn.com/pb/apis-meta/ent/intercept"
 )
 
 type Xxx struct {
@@ -274,16 +387,19 @@ func (Xxx) Annotations() []schema.Annotation {
         entsql.Annotation{Table: "table_name"},
         // 如果有 org_id 字段，添加：
         // schemax.TenantField("org_id"),
+        // 如果有 tenant_id 字段，添加：
+        // schemax.TenantField("tenant_id"),
     }
 }
 
 func (Xxx) Mixin() []ent.Mixin {
-    // 四个审计字段全部存在时：
+    // 根据 id 字段类型选择 ID mixin（放在 AuditMixin 之前）：
+    // - bigint AUTO_INCREMENT → schemax.IntID{}
+    // - bigint 无 AUTO_INCREMENT → schemax.SnowFlakeID{}
+    // - int AUTO_INCREMENT → 不添加 ID mixin
     return []ent.Mixin{
+        // schemax.IntID{}, 或 schemax.SnowFlakeID{},
         schemax.AuditMixin{},
-        // 如果有 org_id 字段，添加：
-        // schemax.NewTenantMixin[intercept.Query, *gen.Client]("apis-meta", intercept.NewQuery,
-        //     schemax.WithTenantMixinStorageKey[intercept.Query, *gen.Client]("org_id")),
     }
     // 缺少任何一个审计字段时：
     // return []ent.Mixin{}
@@ -291,9 +407,14 @@ func (Xxx) Mixin() []ent.Mixin {
 
 func (Xxx) Fields() []ent.Field {
     return []ent.Field{
-        field.Int("id").SchemaType(IntSchemaType),
+        // id 字段：
+        // - 如果使用了 IntID 或 SnowFlakeID mixin，则不定义 id 字段
+        // - 如果是 int AUTO_INCREMENT，则保留：
+        // field.Int("id").SchemaType(IntSchemaType),
         // 如果有 org_id 字段：
         // field.Int(schemax.FieldTenantID).StorageKey("org_id").Immutable().Comment("业务组织id").SchemaType(IntSchemaType),
+        // 如果有 tenant_id 字段：
+        // field.Int(schemax.FieldTenantID).Immutable().Comment("业务组织id").SchemaType(IntSchemaType),
         // ...
     }
 }
@@ -304,7 +425,7 @@ func (Xxx) Edges() []ent.Edge {
 
 func (Xxx) Indexes() []ent.Index {
     return []ent.Index{}
-    // 如果索引包含 org_id，使用 schemax.FieldTenantID：
+    // 如果索引包含租户字段，使用 schemax.FieldTenantID：
     // index.Fields(schemax.FieldTenantID, "other_field").Unique()
 }
 ```
@@ -373,7 +494,7 @@ func getClient(migration bool) *ent.Client {
 
 ```go
 func Test{EntityName}(t *testing.T) {
-	client := getClient(false)
+	client := getClient(true)
 	ctx := context.Background()
 	result, err := client.{EntityName}.Query().Order(ent.Desc("{entity_field_id}")).Limit(100).All(ctx)
 	assert.NoError(t, err)
@@ -383,7 +504,7 @@ func Test{EntityName}(t *testing.T) {
 
 - `{EntityName}` 替换为生成的 schema 结构体名（如 `TradeRule`、`Product`）
 - `{entity_field_id}` 替换为该实体的 ID 字段名，通常为 `id`；需要检查生成的 schema 中是否有对应的 `{entity}FieldID` 常量，如果有则使用该常量包引用（如 `currencyrate.FieldID`），否则直接用字符串 `"id"`
-- 如果 schema 有租户字段（org_id），ctx 需要包装：`ctx = schemax.SkipTenantPrivacy(ctx)`，并导入 `"github.com/woocoos/knockout-go/ent/schemax"`
+- 如果 schema 有租户字段（org_id 或 tenant_id），ctx 需要包装：`ctx = schemax.SkipTenantPrivacy(ctx)`，并导入 `"github.com/woocoos/knockout-go/ent/schemax"`
 - 将新的测试函数追加到文件末尾，不修改已有的测试函数
 
 ## 注意事项
