@@ -52,9 +52,35 @@ Agent Hub 是一个面向 WooCoos 项目的 AI 辅助开发资源集合站。我
 | 技能名称 | 描述 | 适用场景 |
 |---------|------|---------|
 | [karpathy-guidelines](skills/andrej-karpathy/SKILL.md) | 减少 LLM 编码常见错误的行为准则 | 编写、审查或重构代码时避免过度复杂化 |
-| [knockout-go(TODO)](skills/knockout-go/SKILL.md) | Knockout Go 最佳实践 | 将Knockout的特点梳理 |
 
 > 💡 欢迎贡献你的 Go 开发技能包!
+
+---
+
+#### 🥊 Knockout 技能体系
+
+基于 [woocoo](https://github.com/tsingsun/woocoo) 框架的完整开发技能体系，覆盖后端、GraphQL API 和前端 Web UI。
+
+| Skill | 描述 | Qwen Code 安装命令 |
+|-------|------|-------------------|
+| [knockout-go](skills/knockout-go/SKILL.md) | Go 后端 SDK 最佳实践：多租户、Ent 缓存、Casbin 权限、API 客户端 | `npx skills add woocoos/agent-hub@knockout-go -g -a qwen-code -y` |
+| [knockout-gqlgen-urql](skills/knockout-gqlgen-urql/SKILL.md) | GraphQL 开发实践：gqlgen + urql 全栈 GraphQL | `npx skills add woocoos/agent-hub@knockout-gqlgen-urql -g -a qwen-code -y` |
+| [knockout-webui](skills/knockout-webui/SKILL.md) | Web UI 开发实践：React + TypeScript + TailwindCSS | `npx skills add woocoos/agent-hub@knockout-webui -g -a qwen-code -y` |
+
+**一键安装 Knockout 全栈技能:**
+```bash
+for skill in knockout-go knockout-gqlgen-urql knockout-webui; do
+  npx skills add woocoos/agent-hub@$skill -g -a qwen-code -y
+done
+```
+
+**适用场景:**
+- 基于 woocoo 框架的后端服务开发
+- 多租户 SaaS 应用
+- GraphQL API 设计与实现
+- React + TypeScript 前端开发
+
+---
 
 #### karpathy-guidelines
 
