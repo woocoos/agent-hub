@@ -17,7 +17,6 @@ license: MIT
 - 多租户和身份上下文管理 (`pkg/identity`)
 - 基于 Casbin 的权限控制 (`pkg/authz`)
 - Ent 缓存驱动扩展 (`ent/clientx`)
-- 分页工具 (`pkg/pagination`)
 - 速率限制中间件 (`pkg/middleware/ratelimiter`)
 
 ## 技术栈
@@ -33,13 +32,14 @@ license: MIT
 | 缓存 | Redis / 本地 (TinyLFU) |
 | ID 生成 | Snowflake |
 
-## 代码风格
+## 代码规范
 
 ### 注释规范
 
 - 代码注释放在上方，不要放在行尾
 - 不使用装饰线（`// ===`、`// ---`）作为分节符
 - 注释使用中文时, 必须使用半角标点
+- 涉及服务地址时,需要使用回环地址localhost,如配置文件中定义服务地址使用`localhost:8080`,而不是`:8080`
 
 ## 多租户模式
 
