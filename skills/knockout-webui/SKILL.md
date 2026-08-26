@@ -18,7 +18,7 @@ description: 基于 knockout-js 生态的 React UI 页面开发 Skill — 标准
 5. **编辑增量 diff**：更新操作必须使用 `updateFormat` 做增量对比
 6. **离开提示**：所有表单必须接入 `useLeavePrompt`
 7. **只读表单**：用 `readOnly` 不用 `disabled`，清空 `placeholder`
-8. **ModalForm onFinish**：必须返回 `false` 阻止自动关闭
+8. **弹窗表单**：使用 `Modal` + `ProForm` 组合，`ProForm.onFinish` 必须返回 `false`
 9. **Auth Key 来源**：优先使用 GQL mutation 名，无独立接口时自定义前端权限 Key
 10. **ID 列**：`order: -999` + 默认隐藏 + 可复制
 11. **操作列**：`fixed: 'right'` + `hideInSetting: true`
@@ -29,7 +29,7 @@ description: 基于 knockout-js 生态的 React UI 页面开发 Skill — 标准
 
 ```json
 {
-  "@ant-design/pro-components": "^2.8.7",   // ProTable / ProForm / ModalForm / PageContainer
+  "@ant-design/pro-components": "^2.8.7",   // ProTable / ProForm / PageContainer
   "@knockout-js/layout": "0.1.26",          // KeepAlive / Layout / useLeavePrompt
   "@knockout-js/api": "0.1.17",             // GraphQL 请求封装
   "@knockout-js/ice-urql": "0.1.21",        // ICE + urql 集成
@@ -47,7 +47,7 @@ description: 基于 knockout-js 生态的 React UI 页面开发 Skill — 标准
 
 | 类型 | 名称 | 典型场景 | 核心布局 |
 |------|------|----------|----------|
-| **A** | 标准列表页 | 基础数据管理、配置项维护 | ProTable + ModalForm 弹窗 |
+| **A** | 标准列表页 | 基础数据管理、配置项维护 | ProTable + Modal 弹窗 |
 | **B** | 树形管理页 | 分类树、组织架构 | Splitter（Tree + ProForm） |
 | **C** | 多类型列表页 | 同一实体多种子类型 | 路由分发 + 共享列表组件 |
 | **D** | 详情编辑页 | 复杂实体编辑（多 Tab） | 独立页面，多 Tab / Section |
@@ -103,11 +103,11 @@ import { useTranslation } from 'react-i18next';
 // --- UI 组件层 ---
 import {
   ActionType, PageContainer, ProTable,
-  ProForm, ModalForm, ProFormText, ProFormSelect,
+  ProForm, ProFormText, ProFormSelect,
   ProFormDigit, ProFormTextArea, ProFormRadio,
   ProFormCheckbox, ProFormDatePicker, ProFormTimePicker,
 } from '@ant-design/pro-components';
-import { KeepAlive, useLeavePrompt } from '@knockout-js/layout';
+import { KeepAlive, Modal, useLeavePrompt } from '@knockout-js/layout';
 
 // --- 业务工具层 ---
 import { routeBreadcrumb, useResizableProTable } from '@/util/hook';
@@ -116,7 +116,7 @@ import Auth, { checkAuth } from '@/components/auth';
 
 // --- Ant Design 基础组件 ---
 import {
-  Button, Divider, message, Modal, Space, Tag, Typography,
+  Button, Divider, message, Modal as AntModal, Space, Tag, Typography,
   Col, Form, Input, Row, Alert, Checkbox, Radio,
 } from 'antd';
 
@@ -143,7 +143,7 @@ PageContainer（面包屑 + 标题）
 └── KeepAlive（页签缓存）
     └── List（业务组件）
         ├── ProTable（列表 + 搜索 + 工具栏）
-        └── Editor（ModalForm 弹窗表单，条件渲染）
+        └── Editor（Modal + ProForm 弹窗表单，条件渲染）
 ```
 
 ### 4.2 List 组件状态模型
@@ -454,7 +454,7 @@ const { columns: finalColumns, components, tableWidth } = useResizableProTable<E
 
 ---
 
-## 六、ModalForm 弹窗编辑处理
+## 六、Modal + ProForm 弹窗编辑处理
 
 ### 6.1 弹窗状态管理
 
@@ -486,105 +486,128 @@ const [modal, setModal] = useState({
 ### 6.3 Editor 组件标准模板
 
 ```tsx
+import { ProForm, ProFormText } from '@ant-design/pro-components';
+import { Modal, useLeavePrompt } from '@knockout-js/layout';
+import { Col, Form, message, Row } from 'antd';
+import { useEffect, useState } from 'react';
+
 export default (props: {
   title: string;
   onClose: (isSuccess?: boolean, info?: EntityType) => void;
   readonly?: boolean;
   id?: string;
 }) => {
-  const [form] = Form.useForm(),
-    [checkLeave, setLeavePromptWhen] = useLeavePrompt(),
-    [info, setInfo] = useState<EntityType>(),
-    [saveLoading, setSaveLoading] = useState(false),
-    [saveDisabled, setSaveDisabled] = useState(true),
-    [loading, setLoading] = useState(false);
+  const [form] = Form.useForm();
+  const [checkLeave, setLeavePromptWhen] = useLeavePrompt();
+  const [info, setInfo] = useState<EntityType>();
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveDisabled, setSaveDisabled] = useState(true);
 
   // 离开提示绑定
   useEffect(() => { setLeavePromptWhen(saveDisabled); }, [saveDisabled]);
 
-  // 弹窗关闭处理
-  const onOpenChange = (open: boolean) => {
-    if (!open) {
-      if (checkLeave()) {
-        setSaveDisabled(true);
-        requestAnimationFrame(() => { props.onClose?.(); });
-      }
-    } else { setSaveDisabled(true); }
-  };
-
   return (
-    <ModalForm<FormData>
-      open={true}
-      onOpenChange={onOpenChange}
-      requiredMark={!props.readonly}
-      loading={loading}
-      title={props.title}
+    <Modal
       width={500}
-      form={form}
-      modalProps={{ destroyOnHidden: true }}
-      submitter={props.readonly ? false : {
-        searchConfig: { submitText: '保存', resetText: '取消' },
-        submitButtonProps: { loading: saveLoading, disabled: saveDisabled },
-      }}
-      onValuesChange={() => { setSaveDisabled(false); }}
-      request={async () => {
-        const result: FormData = {};
-        setSaveLoading(false);
-        setSaveDisabled(true);
-        setLoading(true);
-        if (props.id) {
-          const infoRes = await getXxxInfo(props.id);
-          if (infoRes) {
-            result.name = infoRes.name ?? undefined;
-            setInfo(infoRes);
-          }
+      title={props.title}
+      open={true}
+      onCancel={() => {
+        if (checkLeave()) {
+          setSaveDisabled(true);
+          requestAnimationFrame(() => {
+            props.onClose?.();
+          });
         }
-        setLoading(false);
-        return result;
       }}
-      autoFocusFirstInput
-      onFinish={async (values: FormData) => {
-        setSaveLoading(true);
-        if (props.id) {
-          // 编辑：必须使用 updateFormat 做增量 diff
-          const result = await mutUpdateXxx(props.id, updateFormat<UpdateXxxInput>({
-            name: values.name,
-          }, info || {}));
-          if (result?.id) {
-            setSaveDisabled(true);
-            props.onClose?.(true, result as EntityType);
-            message.success('保存成功');
-          }
-        } else {
-          // 新建
-          const result = await mutCreateXxx({ name: values.name ?? '' });
-          if (result?.id) {
-            setSaveDisabled(true);
-            props.onClose?.(true, result as EntityType);
-            message.success('保存成功');
-          }
-        }
-        setSaveLoading(false);
-        return false;  // 阻止自动关闭
+      destroyOnHidden={true}
+      footer={props.readonly ? <></> : undefined}
+      okButtonProps={{
+        loading: saveLoading,
+        disabled: saveDisabled,
+      }}
+      onOk={() => {
+        form.submit();
       }}
     >
-      <Row gutter={16}>
-        <Col span={12}>
-          <ProFormText
-            name="name"
-            label="名称"
-            rules={[{ required: true, message: '请填写名称' }]}
-            placeholder={props.readonly ? '' : '请输入名称'}
-            fieldProps={{ readOnly: props.readonly }}
-          />
-        </Col>
-      </Row>
-    </ModalForm>
+      <ProForm<FormData>
+        form={form}
+        requiredMark={!props.readonly}
+        submitter={false}
+        onValuesChange={() => { setSaveDisabled(false); }}
+        autoFocusFirstInput
+        request={async () => {
+          const result: FormData = {};
+          setSaveLoading(false);
+          setSaveDisabled(true);
+          if (props.id) {
+            const infoRes = await getXxxInfo(props.id);
+            if (infoRes) {
+              result.name = infoRes.name ?? undefined;
+              setInfo(infoRes);
+            }
+          }
+          return result;
+        }}
+        onFinish={async (values: FormData) => {
+          setSaveLoading(true);
+          if (props.id) {
+            // 编辑：必须使用 updateFormat 做增量 diff
+            const result = await mutUpdateXxx(props.id, updateFormat<UpdateXxxInput>({
+              name: values.name,
+            }, info || {}));
+            if (result?.id) {
+              setSaveDisabled(true);
+              message.success('保存成功');
+              requestAnimationFrame(() => {
+                props.onClose?.(true, result as EntityType);
+              });
+            }
+          } else {
+            // 新建
+            const result = await mutCreateXxx({ name: values.name ?? '' });
+            if (result?.id) {
+              setSaveDisabled(true);
+              message.success('保存成功');
+              requestAnimationFrame(() => {
+                props.onClose?.(true, result as EntityType);
+              });
+            }
+          }
+          setSaveLoading(false);
+          return false;  // 阻止自动关闭
+        }}
+      >
+        <Row gutter={16}>
+          <Col span={12}>
+            <ProFormText
+              name="name"
+              label="名称"
+              rules={[{ required: true, message: '请填写名称' }]}
+              placeholder={props.readonly ? '' : '请输入名称'}
+              fieldProps={{ readOnly: props.readonly }}
+            />
+          </Col>
+        </Row>
+      </ProForm>
+    </Modal>
   );
 };
 ```
 
-### 6.4 弹窗关闭后的数据更新模式
+### 6.4 关键差异说明（对比旧 ModalForm）
+
+| 方面 | 旧 ModalForm | 新 Modal + ProForm |
+|------|-------------|-------------------|
+| **组件来源** | `ModalForm` from `@ant-design/pro-components` | `Modal` from `@knockout-js/layout` + `ProForm` from `@ant-design/pro-components` |
+| **数据加载** | `request` 属性自动设值 | `ProForm.request` 属性自动设值（返回初始值对象） |
+| **表单提交** | `onFinish` 由 ModalForm 触发 | `Modal.onOk` → `form.submit()` → `ProForm.onFinish` |
+| **关闭处理** | `onOpenChange` | `Modal.onCancel` + `checkLeave()` |
+| **加载状态** | `loading` 属性 | 无需 loading 状态，ProForm.request 自动处理 |
+| **提交按钮** | `submitter` 配置 | `okButtonProps` + `footer` 配置 |
+| **只读模式** | `submitter={readonly ? false : ...}` | `footer={readonly ? <></> : undefined}` |
+| **ProForm 配置** | - | `submitter={false}` 禁用内置提交按钮 |
+
+### 6.5 弹窗关闭后的数据更新模式
 
 | 模式 | 代码 | 适用场景 |
 |------|------|---------|
@@ -658,6 +681,10 @@ PageContainer（header 隐藏）
 }} />
 ```
 
+**Tab 内子组件样式约定：**
+- Tab 内的 `<ProCard>` 使用 `className="ql-detail-tabs-proCard"` 统一标题样式（16px，header padding 重置）
+- Tab 内的 `<ProTable>` 使用 `className="ql-detail-tabs-proTable-action"` 调整操作栏间距
+
 **模式二：ProCard 直出模式（适合内容简单、无需分 Tab 的实体）**
 
 ```tsx
@@ -671,11 +698,19 @@ PageContainer（header 隐藏）
 根据业务需要自由组合，如 Splitter 左右分栏、多 ProCard 纵向排列、内嵌表格等：
 
 ```tsx
-{/* 示例：左右分栏 */}
+{/* 示例：左右分栏（树形管理页 Type B） */}
 <Splitter>
   <Splitter.Panel defaultSize={400}><LeftContent /></Splitter.Panel>
-  <Splitter.Panel><RightContent /></Splitter.Panel>
+  <Splitter.Panel>
+    <div style={{ paddingLeft: 24 }}>
+      <div className="ql-tree-form-title">编辑-{selectedNode?.name}</div>
+      <ProForm ... />
+    </div>
+  </Splitter.Panel>
 </Splitter>
+```
+
+> **`ql-tree-form-title`** 用于树形管理页右侧表单区域标题：`height: 32px; line-height: 32px; font-size: 16px; font-weight: 500; margin-bottom: 16px`。
 
 {/* 示例：多 Card 纵向排列 */}
 <Card size="small" style={{ marginBottom: 16 }}><SectionA /></Card>
@@ -1414,6 +1449,9 @@ for (const key in dictionary) {
 | `ql-detail-tabs` | 详情页 Tab 导航 |
 | `ql-readonly-tags` | 只读多选标签展示 |
 | `ql-detail-title` | 编辑页标题（18px） |
+| `ql-detail-tabs-proCard` | ProCard Tab 页签标题样式（标题 16px，header padding 重置） |
+| `ql-detail-tabs-proTable-action` | Tab 内 ProTable 操作栏（去除顶部 padding，底部 10px） |
+| `ql-tree-form-title` | 树形页表单区域标题（16px，font-weight: 500，底部 16px） |
 
 ---
 
@@ -1424,7 +1462,7 @@ for (const key in dictionary) {
 | ProTable 吸顶偏移 | `offsetHeader: 56` |
 | Splitter 高度 | `calc(100vh - 120px)` |
 | Splitter 左面板宽度 | `380px`（min: 280, max: 500） |
-| ModalForm 宽度 | `500 / 600 / 800` |
+| Modal 宽度 | `500 / 600 / 800` |
 | Row gutter（编辑页） | `24` |
 | Row gutter（弹窗） | `16` |
 | Row gutter（复杂表单） | `20` |
@@ -1439,7 +1477,7 @@ for (const key in dictionary) {
 ### 新建 Type A 列表页
 
 - [ ] 创建 `src/pages/{module}/xxx/index.tsx`：三段式导出
-- [ ] 创建 `src/pages/{module}/xxx/components/editor.tsx`：ModalForm 编辑器
+- [ ] 创建 `src/pages/{module}/xxx/components/editor.tsx`：Modal + ProForm 编辑器
 - [ ] 在 `services/{module}/` 中定义 CRUD 函数
 - [ ] 在 `services/{module}/enums.ts` 中定义枚举
 - [ ] 配置 `menu.json` 菜单路径
@@ -1455,7 +1493,7 @@ for (const key in dictionary) {
 6. **操作列：** `fixed: 'right'` + `hideInSetting: true` + `align: 'center'`
 7. **操作按钮分割线：** `<Space split={<Divider type="vertical" className="ql-divider-gray" />} size={0}>`
 8. **删除操作：** `Modal.confirm` + Promise 模式
-9. **ModalForm `onFinish`：** 必须返回 `false` 阻止自动关闭
+9. **ProForm `onFinish`：** 必须返回 `false` 阻止自动关闭
 10. **只读表单：** 用 `readOnly` 不用 `disabled`，清空 `placeholder`
 11. **状态列：** `valueEnum` + `Tag` 渲染，安全访问 `?.` + 兜底 `?? '-'`
 12. **数值列：** `align: 'right'`
