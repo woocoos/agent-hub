@@ -800,11 +800,31 @@ useEffect(() => {
 
 ### 7.4 URL 参数驱动
 
+#### 读取参数
+
 ```tsx
 const [searchParams, setSearchParams] = useSearchParams();
 const id = searchParams.get('id') ?? '';
 const isReadonly = searchParams.get('readonly') === 'true';
 ```
+
+#### 新建保存后更新 URL
+
+新建成功后，需要将新记录的 ID 写入 URL。此时 **必须使用 `{ replace: true }`**，替换当前历史记录而非新增一条，避免浏览器回退时回到空白的新建页面：
+
+```tsx
+// ✅ 正确：使用 replace，回退直接到列表页
+const handleCreated = (newId: string) => {
+  setSearchParams({ id: newId }, { replace: true });
+};
+
+// ❌ 错误：会多一条历史记录，回退停留在无 id 的新建页
+const handleCreated = (newId: string) => {
+  setSearchParams({ id: newId });
+};
+```
+
+`handleCreated` 作为 `onCreated` 回调传递给 `BasicInfo`（或 `EasyOptionInfo`）子组件，子组件在创建 mutation 成功后调用 `props.onCreated?.(result.id)`。
 
 ### 7.5 信息栏模板
 
