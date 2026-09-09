@@ -30,7 +30,7 @@ description: 基于 knockout-js 生态的 React UI 页面开发 Skill — 标准
 ```json
 {
   "@ant-design/pro-components": "^2.8.7",   // ProTable / ProForm / PageContainer
-  "@knockout-js/layout": "0.1.26",          // KeepAlive / Layout / useLeavePrompt
+  "@knockout-js/layout": "0.1.28",          // KeepAlive / Layout / useLeavePrompt
   "@knockout-js/api": "0.1.17",             // GraphQL 请求封装
   "@knockout-js/ice-urql": "0.1.21",        // ICE + urql 集成
   "antd": "^5.28.0",                        // 基础 UI 组件
@@ -116,12 +116,13 @@ import Auth, { checkAuth } from '@/components/auth';
 
 // --- Ant Design 基础组件 ---
 import {
-  Button, Divider, message, Modal as AntModal, Space, Tag, Typography,
+  Button, Divider, message, Modal, Space, Tag, Typography,
   Col, Form, Input, Row, Alert, Checkbox, Radio,
 } from 'antd';
 
 // --- 服务层 ---
 import { getXxxList, getXxxInfo, mutCreateXxx, mutUpdateXxx, mutDeleteXxx } from '@/services/{module}';
+import { batchInitCacheUser } from '@knockout-js/api/esm/ucenter';
 ```
 
 ### 3.3 页面外壳变体
@@ -129,7 +130,7 @@ import { getXxxList, getXxxInfo, mutCreateXxx, mutUpdateXxx, mutDeleteXxx } from
 | 变体 | 使用场景 | 外壳差异 |
 |------|----------|----------|
 | **标准型** | A/C/E/F 类型 | `PageContainer > KeepAlive > List` |
-| **卡片型** | B 树形管理页 | `PageContainer > ProCard > List`（不需要 KeepAlive） |
+| **卡片型** | B 树形管理页 | `PageContainer > div.ka-content > ProCard > List`（不需要 KeepAlive） |
 | **编辑型** | D 详情编辑页 | `PageContainer(header=hidden) > div.ql-detail-container > ProCard*2` |
 
 ---
@@ -519,7 +520,7 @@ export default (props: {
           });
         }
       }}
-      destroyOnHidden={true}
+      destroyOnHidden={true}  // 所有 Modal 必须设置
       footer={props.readonly ? <></> : undefined}
       okButtonProps={{
         loading: saveLoading,
@@ -710,7 +711,7 @@ PageContainer（header 隐藏）
 </Splitter>
 ```
 
-> **`ql-tree-form-title`** 用于树形管理页右侧表单区域标题：`height: 32px; line-height: 32px; font-size: 16px; font-weight: 500; margin-bottom: 16px`。
+> **`ql-tree-form-title`** 用于树形管理页右侧表单区域标题：`font-size: 15px; font-weight: 600; height: 32px; line-height: 32px; margin-bottom: 16px`。
 
 {/* 示例：多 Card 纵向排列 */}
 <Card size="small" style={{ marginBottom: 16 }}><SectionA /></Card>
@@ -872,22 +873,56 @@ const tabItems = [
 
 ### 7.7 表单区块间隔
 
-```tsx
-<div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16 }}>标识信息</div>
-<Row gutter={24}>
-  ...表单字段...
-</Row>
+实际项目中使用 **CSS class** 而非 inline style，分两种场景：
 
-<div style={{ fontSize: 14, fontWeight: 500, marginBottom: 16, marginTop: 24 }}>其他信息</div>
-<Row gutter={24}>
-  ...表单字段...
-</Row>
+**场景一：Tab 内区块（使用 `ql-detail-tabs-proCard`）**
+
+```tsx
+<ProCard
+  className="ql-detail-tabs-proCard"
+  title="标识信息"
+>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</ProCard>
+
+<ProCard
+  className="ql-detail-tabs-proCard"
+  title="其他信息"
+  style={{ marginTop: 16 }}
+>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</ProCard>
+```
+
+**场景二：非 Tab 区块（使用 `ql-tree-form-title`）**
+
+```tsx
+<div>
+  <div className="ql-tree-form-title" style={{ marginBottom: 12 }}>
+    权证/期权信息
+  </div>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</div>
+
+<div>
+  <div className="ql-tree-form-title" style={{ marginBottom: 12 }}>
+    其他
+  </div>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</div>
 ```
 
 **间距规范：**
-- 区块标题：`fontSize: 14, fontWeight: 500`
-- 标题下方：`marginBottom: 16`
-- 非首区块上方：`marginTop: 24`
+- Tab 内区块：使用 `ProCard` + `ql-detail-tabs-proCard` class（标题 15px，font-weight: 600，header padding 重置）
+- 非 Tab 区块：使用 `ql-tree-form-title` class（标题 15px，font-weight: 600，height/line-height: 32px）
 - Row gutter：编辑页 `24`，弹窗 `16`，复杂表单 `20`
 
 **Col span 规范：**
@@ -1363,6 +1398,8 @@ render(_, record) {
 | `formatTreeData(items, rootId?, options?)` | `@/util` | 扁平数组 → 树结构 |
 | `delTreeData(tree, key, options?)` | `@/util` | 从树中删除节点 |
 | `getTreeDropData(treeData, info)` | `@/util` | 计算拖拽后的新树结构 |
+| `saveTreeData(treeList, updateData, options?)` | `@/util` | 新增或更新树结构数据 |
+| `loopTreeData(data, key, callback)` | `@/util` | 循环遍历树结构，按 key 查找节点并执行回调 |
 | `exportExcel(filename, sheetData)` | `@/util/excel` | 导出 Excel |
 
 ### 12.3 updateFormat 使用规范
@@ -1405,7 +1442,30 @@ result?.edges?.forEach(edge => {
 return table;
 ```
 
-### 13.3 字典数据加载
+### 13.3 Service 层标准导入与辅助工具
+
+```tsx
+import { gql } from '@/generated/{module}';
+import { gid } from '@knockout-js/api';
+import { KoHeaders, mutation, paging, query } from '@knockout-js/ice-urql/request';
+```
+
+| 工具 | 用途 |
+|------|------|
+| `gid('EntityName', id)` | 构建 GraphQL 全局 ID（如 `Bank:xxx`） |
+| `KoHeaders.noCache` | 查询时禁用缓存，确保获取最新数据 |
+| `batchInitCacheUser(userIds)` | 列表请求后批量缓存用户信息（创建人/更新人显示名） |
+
+**列表请求后缓存用户信息的标准写法：**
+
+```tsx
+await batchInitCacheUser(
+  table.data.filter(item => Number(item.createdBy) > 0).map(item => `${item.createdBy}`)
+);
+```
+
+
+### 13.4 字典数据加载
 
 ```tsx
 const typeCodes = ['TypeA', 'TypeB'];
@@ -1469,9 +1529,12 @@ for (const key in dictionary) {
 | `ql-detail-tabs` | 详情页 Tab 导航 |
 | `ql-readonly-tags` | 只读多选标签展示 |
 | `ql-detail-title` | 编辑页标题（18px） |
-| `ql-detail-tabs-proCard` | ProCard Tab 页签标题样式（标题 16px，header padding 重置） |
+| `ql-detail-tabs-proCard` | ProCard Tab 页签标题样式（标题 15px，font-weight: 600，header padding 重置） |
 | `ql-detail-tabs-proTable-action` | Tab 内 ProTable 操作栏（去除顶部 padding，底部 10px） |
-| `ql-tree-form-title` | 树形页表单区域标题（16px，font-weight: 500，底部 16px） |
+| `ql-tree-form-title` | 树形页表单区域标题（15px，font-weight: 600，height/line-height: 32px，底部 16px） |
+| `ka-content` | 卡片型页面内容区域（白色背景、圆角、阴影） |
+| `ql-table-small-toolbar` | 小型工具栏的 ProTable（去除顶部 padding） |
+| `ql-page-tabs` | 页面内 Tab 卡片的 ProCard body padding 调整 |
 
 ---
 
@@ -1480,10 +1543,10 @@ for (const key in dictionary) {
 | 项目 | 值 |
 |------|-----|
 | ProTable 吸顶偏移 | `offsetHeader: 56` |
-| Splitter 高度 | `calc(100vh - 120px)` |
-| Splitter 左面板宽度 | `380px`（min: 280, max: 500） |
+| Splitter 高度 | `calc(100vh - 140px)` ~ `calc(100vh - 200px)`（按页面调整） |
+| Splitter 左面板宽度 | `300px` ~ `340px`（min: 280, max: 500） |
 | Modal 宽度 | `500 / 600 / 800` |
-| Row gutter（编辑页） | `24` |
+| Row gutter（编辑页） | `16` ~ `24`（弹窗 16，复杂详情页 24） |
 | Row gutter（弹窗） | `16` |
 | Row gutter（复杂表单） | `20` |
 | 表单区 padding | `24px 32px` |
