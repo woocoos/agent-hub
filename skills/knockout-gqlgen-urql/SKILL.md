@@ -1,3 +1,8 @@
+---
+name: knockout-gqlgen-urql
+description: GraphQL 接口开发 Skill — 基于 GraphQL Code Generator (client-preset) + urql + @knockout-js/ice-urql 技术栈，处理 *.graphql schema → services gql() 操作 → 生成类型的完整开发流程。
+---
+
 # GraphQL 接口开发 Skill — *.graphql → services → generated 全流程
 
 > 适用项目：所有基于 knockout-js 生态的 React Web 项目

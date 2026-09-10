@@ -1,76 +1,79 @@
-# 页面快速开发 Skill — 多项目通用模式
+---
+name: knockout-webui
+description: 基于 knockout-js 生态的 React UI 页面开发 Skill — 标准列表页、详情编辑页、弹窗编辑、行内编辑表格、权限控制、只读表单等通用模式。
+---
 
-> 适用项目：所有基于 knockout-js 生态的 React Web 项目
-> 技术栈：React 18 + ICE.js 3 + TypeScript + Ant Design 5 + ProComponents 2.8 + urql + GraphQL CodeGen + icestark 微前端
->
-> **自动调用说明**：本 skill 不绑定具体项目，适用于任何使用上述技术栈的项目。
-> 使用时自动按当前项目上下文适配 `instanceName`、权限 key 风格、模块路径等配置。
+# knockout-webui 开发 Skill — 通用页面开发基线
+
+> 本文档是基于 knockout-js 生态的 React UI 开发的**通用 Skill 参考**
+> 适用于所有基于本模板的子应用项目。
+> 开发新页面时，请先通读本文档，确保遵循统一的架构约定。
+
+## 关键规则（速记）
+
+1. **三段式导出**：`List` 组件 + `default export`（PageContainer + KeepAlive）+ `pageConfig`
+2. **列宽拖拽**：所有 ProTable 必须使用 `useResizableProTable`
+3. **操作列分割线**：`<Space split={<Divider type="vertical" className="ql-divider-gray" />} size={0}>`
+4. **权限包裹**：所有操作按钮必须用 `<Auth authKey="...">` 包裹
+5. **编辑增量 diff**：更新操作必须使用 `updateFormat` 做增量对比
+6. **离开提示**：所有表单必须接入 `useLeavePrompt`
+7. **只读表单**：用 `readOnly` 不用 `disabled`，清空 `placeholder`
+8. **弹窗表单**：使用 `Modal` + `ProForm` 组合，`ProForm.onFinish` 必须返回 `false`
+9. **Auth Key 来源**：优先使用 GQL mutation 名，无独立接口时自定义前端权限 Key
+10. **ID 列**：`order: -999` + 默认隐藏 + 可复制
+11. **操作列**：`fixed: 'right'` + `hideInSetting: true`
 
 ---
 
-## 使用方式
+## 一、技术栈与核心依赖
 
-开发新页面时，按以下步骤查阅本 skill：
-1. 确定页面类型（列表页 / 详情页 / 表单页 / 树形管理页）
-2. 复制对应的模板代码
-3. 按服务层规范编写 GraphQL 服务函数
-4. 运行 `pnpm gqlgen` 生成类型
-5. 检查权限、国际化、枚举映射是否到位
-
----
-
-## 一、统一技术栈速查
-
-| 分类 | 技术 | 说明 |
-|------|------|------|
-| 框架 | ICE.js 3 (飞冰) | 文件约定式路由、插件体系 |
-| UI | Ant Design 5 + ProComponents | ProTable / ModalForm / PageContainer / ProCard |
-| 语言 | TypeScript 4.9 | `@/` 别名 → src/ |
-| 数据层 | urql (via @knockout-js/ice-urql) | paging / query / mutation 三件套 |
-| 代码生成 | graphql-codegen (client-preset) | 生成类型到 src/generated/ |
-| 状态管理 | @ice/plugin-store (ICE Store) | models/ 下的 reducers + effects |
-| 微前端 | icestark 子应用 | @knockout-js/layout 提供 KeepAlive |
-| 国际化 | i18next + react-i18next | t('key') 调用 |
-| 日期 | dayjs | |
-| 包管理 | pnpm 8.6 | 禁止 npm/yarn |
-
-### 内部共享库
-
-| 库 | 用途 |
-|----|------|
-| `@knockout-js/api` | 认证/权限/GID 工具/userPermissions/gid() |
-| `@knockout-js/layout` | ProLayout 布局 + KeepAlive + useLeavePrompt + CollectProviders |
-| `@knockout-js/org` | 组织权限/AppSelect/UserSelect |
-| `@knockout-js/ice-urql` | urql 多实例管理/paging/query/mutation/KoHeaders |
+```json
+{
+  "@ant-design/pro-components": "^2.8.7",   // ProTable / ProForm / PageContainer
+  "@knockout-js/layout": "0.1.28",          // KeepAlive / Layout / useLeavePrompt
+  "@knockout-js/api": "0.1.17",             // GraphQL 请求封装
+  "@knockout-js/ice-urql": "0.1.21",        // ICE + urql 集成
+  "antd": "^5.28.0",                        // 基础 UI 组件
+  "react-antd-column-resize": "^1.0.3",     // 表格列宽拖拽
+  "ice": "3.x",                             // 框架（文件系统路由 + icestark 微前端）
+  "dayjs": "x",                             // 日期处理
+  "react-i18next": "x"                      // 国际化
+}
+```
 
 ---
 
-## 二、标准页面结构（三段式模板）
+## 二、页面类型分类
 
-每个页面文件必须包含三个部分：
+| 类型 | 名称 | 典型场景 | 核心布局 |
+|------|------|----------|----------|
+| **A** | 标准列表页 | 基础数据管理、配置项维护 | ProTable + Modal 弹窗 |
+| **B** | 树形管理页 | 分类树、组织架构 | Splitter（Tree + ProForm） |
+| **C** | 多类型列表页 | 同一实体多种子类型 | 路由分发 + 共享列表组件 |
+| **D** | 详情编辑页 | 复杂实体编辑（多 Tab） | 独立页面，多 Tab / Section |
+| **E** | 属性管理页 | 属性组/属性维护 | 列表 + ProForm 内联编辑 |
+| **F** | 子路由钻取页 | 主从层级数据 | 列表 → 子列表（URL 参数传递） |
+
+---
+
+## 三、通用页面外壳（所有类型共用）
+
+### 3.1 三段式导出结构
+
+每个页面 `index.tsx` **必须**包含三段式导出：
 
 ```tsx
-import { definePageConfig } from 'ice';
-import { PageContainer, useToken } from '@ant-design/pro-components';
-import { KeepAlive } from '@knockout-js/layout';
-import { routeBreadcrumb } from '@/util/hook';
-import { useTranslation } from 'react-i18next';
-
-// ============ 1. 内部业务组件（命名导出） ============
-export const ListXxx = (props: { toolbarTitle?: string }) => {
-  const { t } = useTranslation();
-  // ... 业务逻辑
-  return <ProTable ... />;
+// ① 业务组件（内部 List）
+const List = () => {
+  // ... 核心业务逻辑
 };
 
-// ============ 2. 默认导出 — 页面包装器 ============
+// ② 默认导出（页面外壳）
 export default () => {
-  const { token } = useToken();
   const [breadcrumbNames] = routeBreadcrumb();
-
   return (
     <PageContainer
-      className="qeelyn-page-container"
+      className="ql-page-container"
       header={{
         breadcrumb: {
           items: breadcrumbNames.map(item => ({ title: item })),
@@ -78,2013 +81,174 @@ export default () => {
       }}
     >
       <KeepAlive clearAlive>
-        <ListXxx toolbarTitle={[...breadcrumbNames].pop()} />
+        <List />
       </KeepAlive>
     </PageContainer>
   );
 };
 
-// ============ 3. 页面配置（路由级权限） ============
+// ③ 页面配置（路由级权限）
 export const pageConfig = definePageConfig(() => ({
-  auth: ['/模块/页面路径'],  // 对应 menu.json 中的 path
+  auth: ['/{module}/xxx'],  // 必须与 menu.json 路径一致
 }));
 ```
 
-### 关键约定
+### 3.2 关键导入清单
 
-| 约定 | 说明 |
-|------|------|
-| `className="qeelyn-page-container"` | 项目统一页面容器类名 |
-| `<KeepAlive clearAlive>` | 标签页切换时保留状态 |
-| `routeBreadcrumb()` | 从 menu.json 读取面包屑 |
-| `definePageConfig` | auth 数组对应菜单权限 key |
-| `toolbarTitle={[...breadcrumbNames].pop()}` | 取面包屑最后一项作为工具栏标题 |
+```tsx
+// --- 框架层 ---
+import { definePageConfig } from 'ice';
+import { useTranslation } from 'react-i18next';
+
+// --- UI 组件层 ---
+import {
+  ActionType, PageContainer, ProTable,
+  ProForm, ProFormText, ProFormSelect,
+  ProFormDigit, ProFormTextArea, ProFormRadio,
+  ProFormCheckbox, ProFormDatePicker, ProFormTimePicker,
+} from '@ant-design/pro-components';
+import { KeepAlive, Modal, useLeavePrompt } from '@knockout-js/layout';
+
+// --- 业务工具层 ---
+import { routeBreadcrumb, useResizableProTable } from '@/util/hook';
+import { onMousedown, saveDataSource, updateFormat } from '@/util';
+import Auth, { checkAuth } from '@/components/auth';
+
+// --- Ant Design 基础组件 ---
+import {
+  Button, Divider, message, Modal, Space, Tag, Typography,
+  Col, Form, Input, Row, Alert, Checkbox, Radio,
+} from 'antd';
+
+// --- 服务层 ---
+import { getXxxList, getXxxInfo, mutCreateXxx, mutUpdateXxx, mutDeleteXxx } from '@/services/{module}';
+import { batchInitCacheUser } from '@knockout-js/api/esm/ucenter';
+```
+
+### 3.3 页面外壳变体
+
+| 变体 | 使用场景 | 外壳差异 |
+|------|----------|----------|
+| **标准型** | A/C/E/F 类型 | `PageContainer > KeepAlive > List` |
+| **卡片型** | B 树形管理页 | `PageContainer > div.ka-content > ProCard > List`（不需要 KeepAlive） |
+| **编辑型** | D 详情编辑页 | `PageContainer(header=hidden) > div.ql-detail-container > ProCard*2` |
 
 ---
 
-## 三、列表页 ProTable 模板
+## 四、Type A：标准列表页（最核心、最普遍的页面类型）
+
+### 4.1 整体架构
+
+```
+PageContainer（面包屑 + 标题）
+└── KeepAlive（页签缓存）
+    └── List（业务组件）
+        ├── ProTable（列表 + 搜索 + 工具栏）
+        └── Editor（Modal + ProForm 弹窗表单，条件渲染）
+```
+
+### 4.2 List 组件状态模型
 
 ```tsx
-import Auth, { checkAuth } from '@/components/auth';
-import { ActionType, ProColumns, ProTable } from '@ant-design/pro-components';
-import { KeepAlive } from '@knockout-js/layout';
-import { onMousedown, saveDataSource, delDataSource } from '@/util';
-import { Button, message, Modal, Space, Tag, Typography } from 'antd';
-import { definePageConfig, Link } from 'ice';
-import { Key, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import dayjs from 'dayjs';
-
-// 数据类型扩展（加 UI 专用字段）
-type XxxDataSource = GeneratedType & {
-  isCancelLoading?: boolean;
-  children?: XxxDataSource[];
-};
-
-const List = (props: { toolbarTitle?: string }) => {
+const List = () => {
   const { t } = useTranslation(),
     proTableRef = useRef<ActionType>(),
-    [dataSource, setDataSource] = useState<XxxDataSource[]>([]),
-    [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]),
+    [modal, setModal] = useState({
+      open: false,       // 是否打开
+      title: '',         // 弹窗标题
+      id: '',            // 编辑时的记录 ID（空字符串=新建）
+      readonly: false,   // 是否只读
+    }),
+    [dataSource, setDataSource] = useState<EntityType[]>([]),
+    [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([]);
 
-    // ====== 列定义 ======
-    columns: ProColumns<XxxDataSource>[] = [
-      {
-        title: '编号', dataIndex: 'code', width: 120, order: 2,
-      },
-      {
-        title: '名称', dataIndex: 'name', width: 150, order: 4,
-      },
-      {
-        title: '状态', dataIndex: 'state', width: 100, order: 6,
-        valueType: 'select',
-        valueEnum: EnumXxxState,  // 从 services 导入
-        render: (_, record) => (
-          <Tag color={EnumXxxState[record.state]?.tagColor}>
-            {EnumXxxState[record.state]?.text}
-          </Tag>
-        ),
-      },
-      {
-        title: '关联实体', dataIndex: 'relatedID', width: 180, order: 8,
-        // 自定义搜索表单项（按项目实际业务选择器替换）
-        renderFormItem: () => <Select placeholder="请选择" />,
-        // 自定义表格显示（按项目实际缓存/映射替换）
-        renderText: (text) => text,
-      },
-      {
-        title: '日期范围', dataIndex: 'dateRange', width: 200,
-        valueType: 'dateRange', order: 10,
-        render: (_, record) => dayjs(record.createdAt).format('YYYY-MM-DD'),
-      },
-      {
-        title: '创建时间', dataIndex: 'createdAt', valueType: 'dateTime',
-        search: false,  // 不参与搜索
-      },
-      {
-        title: '操作', dataIndex: 'actions', fixed: 'right',
-        search: false, align: 'center', width: 180,
-        render: (_, record) => (
-          <Space>
-            <Typography.Link onClick={() => { /* 查看 */ }}>查看</Typography.Link>
-            <Auth authKey="updateXxx">
-              <Typography.Link onClick={() => { /* 编辑 */ }}>编辑</Typography.Link>
-            </Auth>
-            <Auth authKey="deleteXxx">
-              <Typography.Link onClick={() => handleDelete(record)}>删除</Typography.Link>
-            </Auth>
-          </Space>
-        ),
-      },
-    ];
-
-  // ====== 删除操作 ======
-  const handleDelete = (record: XxxDataSource) => {
-    Modal.confirm({
-      title: '删除',
-      content: `是否删除：${record.name}？`,
-      onOk: async () => {
-        return new Promise(async (resolve, reject) => {
-          const result = await mutDeleteXxx(record.id);
-          if (result) {
-            message.success('执行成功');
-            // 本地更新，不重新请求
-            setDataSource(delDataSource(dataSource, record.id));
-            resolve(true);
-          } else {
-            reject();
-          }
-        });
-      },
-    });
-  };
-
-  return (
-    <ProTable<XxxDataSource>
-      actionRef={proTableRef}
-      sticky={dataSource.length > 0 ? { offsetHeader: 56 } : undefined}
-      rowKey="id"
-      search={{
-        className: 'qeelyn-pro-table-search',
-        searchText: `${t('query')}`,
-        resetText: `${t('reset')}`,
-        labelWidth: 70,
-      }}
-      toolbar={{
-        title: props.toolbarTitle,
-        actions: [
-          <Auth authKey="createXxx">
-            <Button type="primary" onClick={() => { /* 新建 */ }}>
-              {t('create')}
-            </Button>
-          </Auth>,
-        ],
-      }}
-      scroll={{ x: 'max-content' }}
-      form={{
-        initialValues: {
-          dateRange: [dayjs(), dayjs()],  // 默认日期
-        },
-      }}
-      columns={columns}
-      dataSource={dataSource}
-      request={async (params) => {
-        // 1) 构建 WhereInput
-        const where: XxxWhereInput = {};
-        if (params.code) where.codeContains = params.code;
-        if (params.name) where.nameContains = params.name;
-        if (params.state) where.state = params.state;
-        if (params.dateRange?.length === 2) {
-          where.createdAtGTE = dayjs(params.dateRange[0]).format('YYYY-MM-DDT00:00:00Z');
-          where.createdAtLTE = dayjs(params.dateRange[1]).format('YYYY-MM-DDT23:59:59Z');
-        }
-
-        // 2) 调用服务层
-        const result = await getXxxList({
-          current: params.current,
-          pageSize: params.pageSize,
-          where,
-        });
-
-        // 3) 转换 Relay edges → 扁平数组
-        const table = { data: [] as XxxDataSource[], success: true, total: 0 };
-        table.total = result?.totalCount ?? 0;
-        result?.edges?.forEach((item) => {
-          if (item?.node) table.data.push({ ...item.node });
-        });
-
-        // 4) 批量初始化缓存（可选，用于关联实体名称显示）
-        // await batchInitCacheXxx(table.data.map(i => `${i.xxxID}`));
-
-        setDataSource(table.data);
-        setSelectedRowKeys([]);
-        return table;
-      }}
-      pagination={{
-        showSizeChanger: true,
-        pageSize: 20,
-        pageSizeOptions: [10, 20, 50, 100],
-      }}
-      rowSelection={{
-        type: 'radio',
-        selectedRowKeys,
-        onChange: setSelectedRowKeys,
-      }}
-      onRow={(record) => ({
-        onMouseDown: (e) => {
-          onMousedown({
-            target: e.target as HTMLElement,
-            click: () => {
-              setSelectedRowKeys(prev =>
-                prev.includes(record.id) ? [] : [record.id]
-              );
-            },
-          });
-        },
-      })}
-    />
-  );
+  // 可调整列宽的 ProTable
+  const { columns: finalColumns, components, tableWidth } = useResizableProTable<EntityType>(() => ({
+    columns: [/* ... */],
+  }), [/* 依赖 */]);
 };
 ```
 
-### ProTable 列属性速查
-
-| 属性 | 说明 |
-|------|------|
-| `order: number` | 搜索表单字段排序，数值越小越靠前 |
-| `valueEnum` | 枚举映射对象，同时控制搜索下拉和表格显示 |
-| `valueType: 'select'` | 搜索用下拉框 |
-| `valueType: 'dateRange'` | 搜索用日期范围 |
-| `valueType: 'dateTime'` | 表格显示日期时间 |
-| `renderFormItem` | 自定义搜索表单项（如业务选择器） |
-| `renderText` | 自定义表格单元格文本 |
-| `render` | 完全自定义单元格渲染 |
-| `search: false` | 仅展示不参与搜索 |
-| `hideInTable: true` | 仅搜索不展示在表格 |
-| `fieldProps: { mode: 'multiple' }` | 搜索下拉支持多选 |
-| `fixed: 'right'` | 操作列固定在右侧 |
-
----
-
-## 四、ModalForm 编辑器模板（CRUD 弹窗）
+### 4.3 ProTable 标准配置
 
 ```tsx
-import { Xxx, UpdateXxxInput } from '@/generated/模块/graphql';
-import { getXxxInfo, mutCreateXxx, mutUpdateXxx } from '@/services/模块';
-import { updateFormat } from '@/util';
-import { ModalForm, ProFormText, ProFormSelect, ProFormTextArea } from '@ant-design/pro-components';
-import { useLeavePrompt } from '@knockout-js/layout';
-import { Col, Form, message, Row } from 'antd';
-import { useEffect, useState } from 'react';
+<ProTable<EntityType>
+  // --- Ref & 数据源 ---
+  actionRef={proTableRef}
+  dataSource={dataSource}
+  rowKey="id"
 
-interface FormData {
-  code?: string;
-  name?: string;
-  description?: string;
-}
+  // --- 吸顶（仅有数据时启用）---
+  sticky={dataSource.length > 0 ? { offsetHeader: 56 } : undefined}
 
-export default (props: {
-  title: string;
-  id?: string;
-  readonly?: boolean;
-  onClose: (isSuccess?: boolean, info?: Xxx) => void;
-}) => {
-  const [form] = Form.useForm<FormData>(),
-    [checkLeave, setLeavePromptWhen] = useLeavePrompt(),
-    [info, setInfo] = useState<Xxx>(),
-    [saveLoading, setSaveLoading] = useState(false),
-    [saveDisabled, setSaveDisabled] = useState(true),
-    [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setLeavePromptWhen(saveDisabled);
-  }, [saveDisabled]);
-
-  const onOpenChange = (open: boolean) => {
-    if (!open) {
-      if (checkLeave()) {
-        props.onClose?.();
-        setSaveDisabled(true);
-      }
-    } else {
-      setSaveDisabled(true);
-    }
-  };
-
-  return (
-    <ModalForm<FormData>
-      open={true}
-      onOpenChange={onOpenChange}
-      disabled={props.readonly}
-      loading={loading}
-      title={props.title}
-      width={500}
-      form={form}
-      modalProps={{ destroyOnHidden: true }}
-      submitter={props.readonly ? false : {
-        searchConfig: { submitText: '保存', resetText: '取消' },
-        submitButtonProps: { loading: saveLoading, disabled: saveDisabled },
-      }}
-      onValuesChange={() => setSaveDisabled(false)}
-      request={async () => {
-        setSaveLoading(false);
-        setSaveDisabled(true);
-        setLoading(true);
-        const result: FormData = {};
-        if (props.id) {
-          const infoRes = await getXxxInfo(props.id);
-          if (infoRes) {
-            result.code = infoRes.code;
-            result.name = infoRes.name;
-            result.description = infoRes.description ?? undefined;
-            setInfo(infoRes);
-          }
-        }
-        setLoading(false);
-        return result;
-      }}
-      autoFocusFirstInput
-      onFinish={async (values) => {
-        setSaveLoading(true);
-        if (props.id) {
-          // 更新：用 updateFormat 计算差异
-          const result = await mutUpdateXxx(props.id, updateFormat<UpdateXxxInput>({
-            code: values.code,
-            name: values.name,
-            description: values.description,
-          }, info || {}));
-          if (result?.id) {
-            setSaveDisabled(true);
-            props.onClose?.(true, result);
-            message.success('保存成功');
-          }
-        } else {
-          // 新建
-          const result = await mutCreateXxx({
-            code: values.code ?? '',
-            name: values.name ?? '',
-            description: values.description,
-            state: XxxState.Disable,  // 新建默认禁用
-          });
-          if (result?.id) {
-            setSaveDisabled(true);
-            props.onClose?.(true, result);
-            message.success('保存成功');
-          }
-        }
-        setSaveLoading(false);
-        return false;  // 阻止自动关闭
-      }}
-    >
-      <Row gutter={16}>
-        <Col span={12}>
-          <ProFormText name="code" label="编码"
-            rules={[{ required: true, message: '请填写编码' }]} />
-        </Col>
-        <Col span={12}>
-          <ProFormText name="name" label="名称"
-            rules={[{ required: true, message: '请填写名称' }]} />
-        </Col>
-        <Col span={24}>
-          <ProFormTextArea name="description" label="描述" />
-        </Col>
-      </Row>
-    </ModalForm>
-  );
-};
-```
-
-### ModalForm 关键模式
-
-| 模式 | 说明 |
-|------|------|
-| `saveDisabled` | 初始 true，`onValuesChange` 时设 false，保存后恢复 true |
-| `useLeavePrompt` | 未保存时离开提示 |
-| `updateFormat(target, original)` | 对比差异，清空字段自动生成 `clearXxx: true` |
-| `disabled={props.readonly}` | 查看模式 |
-| `submitter={false}` | 查看模式隐藏按钮 |
-| `destroyOnHidden: true` | 关闭时销毁表单状态 |
-| `request={}` | 加载已有数据 |
-| `return false` | onFinish 中返回 false 阻止自动关闭 |
-| 新建默认 `state: XxxState.Disable` | 新建默认禁用 |
-
----
-
-## 四·附、表单编辑离开警告处理规范
-
-### 核心机制
-
-`useLeavePrompt` 来自 `@knockout-js/layout`，覆盖两个层面的离开拦截：
-
-| 层面 | 拦截方式 | 触发场景 |
-|------|---------|---------|
-| 浏览器刷新/关闭 | `beforeunload` 事件 | F5、Ctrl+R、关闭标签页 |
-| SPA 内导航 | Layout 组件中 `checkLeave()` | 菜单切换、应用切换、退出登录 |
-
-> **注意**：无法拦截浏览器前进/后退按钮（框架已知限制）。
-
-### 实现原理
-
-`useLeavePrompt` 内部使用**模块级共享变量** `when`（全局唯一状态），所有使用该 hook 的组件共享同一个状态：
-
-```ts
-// @knockout-js/layout 内部简化
-var when = true;  // true = 无修改，允许离开
-
-export const useLeavePrompt = () => {
-  // checkLeave: when=true 直接返回 true；否则弹出 confirm 对话框
-  const checkLeave = () => {
-    if (when) return true;
-    if (confirm('有未保存的修改，是否离开？')) return true;
-    return false;
-  };
-  // setLeavePromptWhen: 通过 CustomEvent 更新共享的 when 变量
-  const setLeavePromptWhen = (when) => {
-    window.dispatchEvent(new CustomEvent('updateLeavePromptContext', { detail: when }));
-  };
-  return [checkLeave, setLeavePromptWhen];
-};
-```
-
-> `setLeavePromptWhen(true)` = 无修改 = 允许离开；`setLeavePromptWhen(false)` = 有修改 = 阻止离开。语义与 `saveDisabled` 一致。
-
-### Hook 返回值
-
-```tsx
-import { useLeavePrompt } from '@knockout-js/layout';
-
-const [checkLeave, setLeavePromptWhen] = useLeavePrompt();
-// checkLeave: () => boolean — 检查是否可以离开（无修改时返回 true）
-// setLeavePromptWhen: (condition: boolean) => void — 设置"何时有未保存修改"
-//   传入 true = 有未保存修改（阻止离开）
-//   传入 false = 无未保存修改（允许离开）
-```
-
-### 标准使用模式（ModalForm 编辑器）
-
-```tsx
-export default (props: {
-  title: string;
-  id?: string;
-  readonly?: boolean;
-  onClose: (isSuccess?: boolean, info?: Xxx) => void;
-}) => {
-  const [form] = Form.useForm<FormData>(),
-    [checkLeave, setLeavePromptWhen] = useLeavePrompt(),
-    [saveDisabled, setSaveDisabled] = useState(true);
-
-  // ① 监听 saveDisabled 变化，同步到离开提示条件
-  // saveDisabled=true → 无修改 → setLeavePromptWhen(true) → 允许离开
-  // saveDisabled=false → 有修改 → setLeavePromptWhen(false) → 阻止离开
-  useEffect(() => {
-    setLeavePromptWhen(saveDisabled);
-  }, [saveDisabled]);
-
-  // ② 弹窗关闭时的处理
-  const onOpenChange = (open: boolean) => {
-    if (!open) {
-      // 用户点击关闭按钮 / 遮罩层 / ESC
-      if (checkLeave()) {
-        // 无修改 或 用户确认离开 → 关闭弹窗
-        props.onClose?.();
-        setSaveDisabled(true);
-      }
-      // checkLeave() 返回 false → 弹出确认框，用户取消则不关闭
-    } else {
-      // 弹窗打开时重置状态
-      setSaveDisabled(true);
-    }
-  };
-
-  return (
-    <ModalForm<FormData>
-      open={true}
-      onOpenChange={onOpenChange}
-      // ③ 表单值变化时标记为"有修改"
-      onValuesChange={() => setSaveDisabled(false)}
-      onFinish={async (values) => {
-        // ④ 保存成功后恢复"无修改"状态
-        const result = props.id
-          ? await mutUpdateXxx(props.id, updateFormat(values, info))
-          : await mutCreateXxx(values);
-        if (result?.id) {
-          setSaveDisabled(true);   // 恢复为"无修改"
-          props.onClose?.(true, result);
-          message.success('保存成功');
-        }
-        return false;
-      }}
-    >
-      {/* 表单内容 */}
-    </ModalForm>
-  );
-};
-```
-
-### 状态流转图
-
-```
-初始状态: saveDisabled=true → setLeavePromptWhen(true) → 允许离开
-    ↓ 用户修改表单
-onValuesChange → saveDisabled=false → setLeavePromptWhen(false) → 阻止离开
-    ↓ 用户保存成功
-onFinish → setSaveDisabled(true) → setLeavePromptWhen(true) → 允许离开
-    ↓ 用户点击关闭
-onOpenChange(false) → checkLeave() → true → props.onClose() → 弹窗关闭
-```
-
-### 在 Layout 中的全局监听
-
-`useLeavePrompt` 的离开检查在 Layout 组件中统一处理：
-
-```tsx
-// src/components/layout/index.tsx
-const [checkLeave] = useLeavePrompt();
-
-<Layout
-  onClickMenuItem={async (item, isOpen) => {
-    if (checkLeave()) {          // 菜单切换前检查
-      navigate(item.path);
-    }
+  // --- 搜索区域 ---
+  search={{
+    className: 'ql-pro-table-search',
+    searchText: `${t('query')}`,
+    resetText: `${t('reset')}`,
+    labelWidth: 70,
   }}
-  avatarProps={{
-    onLogoutClick: () => {
-      if (checkLeave()) {        // 退出前检查
-        logout();
-      }
-    },
+
+  // --- 工具栏 ---
+  toolbar={{
+    actions: [
+      <Auth authKey="createXxx">
+        <Button type="primary" onClick={() => {
+          setModal({ open: true, title: '新建', id: '', readonly: false });
+        }}>新建</Button>
+      </Auth>,
+    ],
   }}
-  aggregateMenuProps={{
-    onClick: async (menuItem, app, isOpen) => {
-      if (checkLeave()) {        // 切换应用前检查
-        navigate(url);
-      }
-    }
+
+  // --- 横向滚动 & 列宽拖拽 ---
+  scroll={{ x: tableWidth }}
+  components={components}
+
+  // --- 列定义 ---
+  columns={finalColumns}
+  columnsState={{ defaultValue: { id: { show: false } } }}
+
+  // --- 数据请求（Relay Connection 模式）---
+  request={async (params) => {
+    const table = { data: [] as EntityType[], success: true, total: 0 };
+    const where: EntityWhereInput = {};
+    if (params.name) where.nameContains = params.name;
+    if (params.code) where.codeContains = params.code;
+
+    const result = await getXxxList({
+      current: params.current,
+      pageSize: params.pageSize,
+      where,
+    });
+    table.total = result?.totalCount ?? 0;
+    result?.edges?.forEach(edge => {
+      if (edge?.node) table.data.push(edge.node);
+    });
+    setDataSource(table.data);
+    setSelectedRowKeys([]);
+    return table;
   }}
-/>
-```
 
-> 这意味着任何页面/弹窗中通过 `setLeavePromptWhen(false)` 设置了未保存标记后，用户在 Layout 层的操作（切菜单、切应用、退出）都会被拦截。
-
-### 复杂表单场景（多 Tab / 多步骤）
-
-当表单分布在多个 Tab 或步骤中时，每个子组件都需独立处理：
-
-```tsx
-// 子组件 A — 基本信息
-export default (props: { info?: Product; readonly?: boolean; productId?: string }) => {
-  const [saveDisabled, setSaveDisabled] = useState(true);
-  const [, setLeavePromptWhen] = useLeavePrompt();
-
-  useEffect(() => {
-    setLeavePromptWhen(saveDisabled);
-  }, [saveDisabled]);
-
-  return (
-    <ProForm
-      onValuesChange={() => setSaveDisabled(false)}
-      onFinish={async (values) => {
-        await mutUpdateProduct(props.productId!, updateFormat(values, props.info));
-        setSaveDisabled(true);
-        message.success('保存成功');
-      }}
-    >
-      {/* 字段 */}
-    </ProForm>
-  );
-};
-```
-
-### 常见错误与注意事项
-
-| 错误 | 后果 | 正确做法 |
-|------|------|---------|
-| 忘记调用 `setLeavePromptWhen` | 修改表单后仍可无提示离开 | 必须用 `useEffect` 同步 `saveDisabled` |
-| `onFinish` 中不恢复 `setSaveDisabled(true)` | 保存后仍提示未保存 | 保存成功后立即 `setSaveDisabled(true)` |
-| `onOpenChange` 中不调用 `checkLeave()` | 关闭弹窗时不提示 | 必须在 `!open` 分支中 `if (checkLeave())` |
-| `readonly` 模式下也设置离开提示 | 查看模式也触发提示 | `readonly` 时 `saveDisabled` 保持 `true` 即可 |
-| 在 `onFinish` 失败时仍 `setSaveDisabled(true)` | 保存失败后丢失离开提示 | 只在 `result?.id` 成功时才恢复 |
-
----
-
-## 五、列表页 + 弹窗编辑器组合模板
-
-```tsx
-// 页面中组合使用列表 + ModalForm 编辑器
-const [modal, setModal] = useState({
-  open: false,
-  title: '',
-  id: '',
-  readonly: false,
-});
-
-// 打开新建
-const handleCreate = () => setModal({ open: true, title: '新建', id: '', readonly: false });
-
-// 打开编辑
-const handleEdit = (record: XxxDataSource) => setModal({
-  open: true, title: `编辑 ${record.name}`, id: record.id, readonly: false,
-});
-
-// 打开查看
-const handleView = (record: XxxDataSource) => setModal({
-  open: true, title: `查看 ${record.name}`, id: record.id, readonly: true,
-});
-
-// 编辑器关闭回调 — 本地更新数据
-const handleEditorClose = async (isSuccess?: boolean, info?: Xxx) => {
-  if (isSuccess && info) {
-    setDataSource(saveDataSource(dataSource, info));
-  }
-  setModal({ open: false, title: '', id: '', readonly: false });
-};
-
-// 渲染
-return <>
-  <ProTable ... />
-  {modal.open ? <Editor
-    title={modal.title}
-    id={modal.id}
-    readonly={modal.readonly}
-    onClose={handleEditorClose}
-  /> : <></>}
-</>;
-```
-
----
-
-## 六、详情页模板
-
-```tsx
-import { useSearchParams } from 'ice';
-import { ProCard } from '@ant-design/pro-components';
-import { getXxxInfo } from '@/services/模块';
-import { useEffect, useState } from 'react';
-
-export default () => {
-  const [searchParams] = useSearchParams();
-  const id = searchParams.get('id') ?? '';
-  const [info, setInfo] = useState<Xxx>();
-
-  useEffect(() => {
-    if (id) {
-      getXxxInfo(id).then(res => res && setInfo(res));
-    }
-  }, [id]);
-
-  return (
-    <PageContainer className="qeelyn-page-container"
-      header={{ title: info?.name, ... }}>
-      <ProCard split="horizontal">
-        {/* 头部信息 */}
-        <ProCard>
-          <Descriptions>
-            <Descriptions.Item label="编号">{info?.code}</Descriptions.Item>
-            <Descriptions.Item label="状态">
-              <Tag color={EnumXxxState[info?.state ?? ''].tagColor}>
-                {EnumXxxState[info?.state ?? ''].text}
-              </Tag>
-            </Descriptions.Item>
-          </Descriptions>
-        </ProCard>
-        {/* 内容区 Tabs */}
-        <ProCard tabs={{ items: [
-          { key: 'info', label: '基本信息', children: <InfoTab info={info} /> },
-          { key: 'related', label: '关联数据', children: <RelatedTab info={info} /> },
-        ]}} />
-      </ProCard>
-    </PageContainer>
-  );
-};
-```
-
----
-
-## 七、服务层规范
-
-### 文件结构
-
-```
-src/services/
-├── index.ts               # instanceName 常量导出
-├── 模块名/index.ts         # 该模块的 GraphQL 服务函数
-└── auth/                  # 认证相关（REST）
-```
-
-### instanceName 注册表
-
-> **项目适配**：每个项目在 `src/services/index.ts` 中定义自己的 `instanceName`，
-> 值对应 `@knockout-js/ice-urql` 中注册的 GraphQL 端点名称。
-> 编写服务函数时，从当前项目的 `instanceName` 中查找对应后端服务。
-
-```ts
-// src/services/index.ts
-// 每个项目按需定义，以下为示例结构
-export const instanceName = {
-  // 按项目实际后端服务配置
-  DEFAULT: 'default',
-  // ... 其他服务实例
-};
-```
-
-### 标准 CRUD 服务函数
-
-```ts
-import { gql } from '@/generated/模块名';
-import { KoHeaders, mutation, paging, query } from '@knockout-js/ice-urql/request';
-import { gid } from '@knockout-js/api';
-import { instanceName } from '..';
-
-// ====== 枚举映射导出 ======
-export const EnumXxxState: Record<string, { text: string; tagColor: string }> = {
-  Enable: { text: '启用', tagColor: 'success' },
-  Disable: { text: '禁用', tagColor: 'error' },
-};
-
-// ====== 1. 列表查询（分页） ======
-const queryXxxList = gql(`
-  query xxxList($first: Int, $orderBy: XxxOrder, $where: XxxWhereInput) {
-    xxxs(first: $first, orderBy: $orderBy, where: $where) {
-      totalCount
-      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
-      edges {
-        cursor
-        node { id code name state createdAt ... }
-      }
-    }
-  }
-`);
-
-export const getXxxList = async (gather: {
-  current?: number;
-  pageSize?: number;
-  where?: XxxWhereInput;
-  orderBy?: XxxOrder;
-}) => {
-  const result = await paging(queryXxxList, {
-    first: gather.pageSize || 20,
-    where: gather.where,
-    orderBy: gather.orderBy ?? {
-      direction: OrderDirection.Desc,
-      field: XxxOrderField.CreatedAt,
-    },
-  }, gather.current || 1, {
-    instanceName: instanceName.XXX,  // 从当前项目 services/index.ts 查找
-    fetchOptions: { headers: KoHeaders.noCache },
-  });
-  return result.data?.xxxs;
-};
-
-// ====== 2. 单条查询 ======
-const queryXxxInfo = gql(`
-  query xxxInfo($gid: GID!) {
-    node(id: $gid) {
-      ... on Xxx { id code name state ... }
-    }
-  }
-`);
-
-export const getXxxInfo = async (id: string) => {
-  const result = await query(queryXxxInfo, { gid: gid('Xxx', id) }, {
-    instanceName: instanceName.XXX,
-    fetchOptions: { headers: KoHeaders.noCache },
-  });
-  if (result.data?.node?.__typename === 'Xxx') return result.data.node;
-  return null;
-};
-
-// ====== 3. 创建 ======
-const mutationCreateXxx = gql(`
-  mutation createXxx($input: CreateXxxInput!) {
-    createXxx(input: $input) { id code name state ... }
-  }
-`);
-
-export const mutCreateXxx = async (input: CreateXxxInput) => {
-  const result = await mutation(mutationCreateXxx, { input }, {
-    instanceName: instanceName.XXX,
-  });
-  return result.data?.createXxx;
-};
-
-// ====== 4. 更新 ======
-const mutationUpdateXxx = gql(`
-  mutation updateXxx($id: ID!, $input: UpdateXxxInput!) {
-    updateXxx(id: $id, input: $input) { id code name state ... }
-  }
-`);
-
-export const mutUpdateXxx = async (id: string, input: UpdateXxxInput) => {
-  const result = await mutation(mutationUpdateXxx, { id, input }, {
-    instanceName: instanceName.XXX,
-  });
-  return result.data?.updateXxx;
-};
-// ⚠️ 调用 mutUpdateXxx 时，input 参数必须经过 updateFormat 处理
-// 正确：mutUpdateXxx(id, updateFormat<UpdateXxxInput>(formValues, originalInfo))
-// 错误：mutUpdateXxx(id, formValues)  ← 直接传表单对象
-
-// ====== 5. 删除 ======
-const mutationDeleteXxx = gql(`
-  mutation deleteXxx($id: ID!) { deleteXxx(id: $id) }
-`);
-
-export const mutDeleteXxx = async (id: string) => {
-  const result = await mutation(mutationDeleteXxx, { id }, {
-    instanceName: instanceName.XXX,
-  });
-  return result.data?.deleteXxx;
-};
-
-// ====== 6. 校验函数（可选） ======
-export const isCanDelete = (record: Xxx): {
-  type: 'error' | 'warning';
-  string: string;
-} | undefined => {
-  if (record.state === 'Enable') {
-    return { type: 'warning', string: '请先禁用再删除' };
-  }
-  return undefined;
-};
-```
-
-### 三个 urql 辅助函数
-
-| 函数 | 用途 | 返回 |
-|------|------|------|
-| `paging(doc, args, page, opts)` | Relay 游标分页列表 | `{ totalCount, edges, pageInfo }` |
-| `query(doc, vars, opts)` | 单实体查询 | `result.data` |
-| `mutation(doc, vars, opts)` | 写操作 | `result.data` |
-
-### GraphQL 命名约定
-
-```graphql
-# 查询：{service}{Entity}{Action}
-query userOrderList($first: Int, ...) { ... }
-query userConditionOrderList(...) { ... }
-query bizTypes($first: Int, ...) { ... }
-
-# Mutation：{service}{Action}
-mutation userCancelOrder($req: CancelOrderRequest) { ... }
-mutation createBizType($input: CreateBizTypeInput!) { ... }
-```
-
-### 代码生成工作流
-
-```bash
-# 1. 从远程拉取 Schema（需 .env.local 中配置 Token）
-pnpm gqlgen:schema-ast
-
-# 2. 生成 TypeScript 类型
-pnpm gqlgen
-
-# 3. 监听模式（开发时）
-pnpm gqlgen:watch
-```
-
-**流程：** 在 `src/services/<模块>/*.ts` 写 `gql()` → 运行 `pnpm gqlgen` → 从 `@/generated/<模块>/graphql` 导入类型
-
----
-
-## 八、权限控制
-
-### 8.1 权限体系概述
-
-权限系统分为三层：
-
-```
-menu.json（页面路由权限） → userPermissions API（后端权限列表） → Auth 组件（按钮级控制）
-```
-
-| 层级 | 控制目标 | 配置位置 | 示例 |
-|------|---------|---------|------|
-| 路由权限 | 页面能否访问 | `pageConfig.auth` + `menu.json` | `/ui/biz-type` |
-| 操作权限 | 按钮能否显示 | `<Auth authKey="...">` | `createBizType` |
-| 开发模式 | 全部权限放行 | `NODE_ENV=development` | 自动通过 |
-
-### 8.2 路由级权限
-
-```tsx
-import { definePageConfig } from 'ice';
-
-// auth 数组中的 path 必须与 menu.json 中的 path 完全一致
-export const pageConfig = definePageConfig(() => ({
-  auth: ['/ui/biz-type'],
-}));
-```
-
-**menu.json 结构：**
-
-```json
-[
-  {
-    "name": "基础数据",
-    "icon": "icon-icon_zhanghu1",
-    "children": [
-      { "name": "业务类型管理", "path": "/ui/biz-type" },
-      { "name": "交易类型管理", "path": "/ui/trade-type" }
-    ]
-  }
-]
-```
-
-### 8.3 权限 Key 获取规范
-
-#### 权限 Key 的来源与加载流程
-
-```
-1. 应用启动 → authConfig (app.tsx)
-2. getMenuAppActions() → 从 menu.json 提取所有 path 作为初始权限（开发环境全部为 true）
-3. userPermissions(ICE_APP_CODE, headers) → 从后端获取用户操作权限列表
-4. 后端返回 ups[] → 每个 item.name 就是权限 key（如 "createBizType"）
-5. 合并到 initialAuth → { "/ui/biz-type": true, "createBizType": true, ... }
-```
-
-**app.tsx 中的关键代码：**
-
-```tsx
-import { userPermissions } from '@knockout-js/api';
-import { getMenuAppActions } from '@/util';
-
-export const authConfig = defineAuthConfig(async (appData) => {
-  // 1. 从 menu.json 生成路由权限（开发环境自动全部放行）
-  const initialAuth = getMenuAppActions();
-
-  // 2. 从后端获取操作权限
-  const ups = await userPermissions(ICE_APP_CODE, {
-    Authorization: getRequestHeaderAuthorization(token, ...),
-    'X-Tenant-ID': tenantId,
-  });
-
-  // 3. 合并到 initialAuth
-  ups?.forEach(item => {
-    if (item) initialAuth[item.name] = true;
-  });
-
-  return { initialAuth };
-});
-```
-
-#### 权限 Key 命名规则
-
-> **项目适配**：不同项目的权限 key 风格可能不同，开发前参考同项目已有页面确认风格。
-
-| 风格 | 适用项目类型 | 规则 | 示例 |
-|------|---------|------|------|
-| camelCase 动词+实体 | 多数项目 | `create/update/delete` + 实体名 | `createBizType`、`updateUnit`、`deleteTradeRule` |
-| snake_case 应用\_实体\_操作 | 部分项目 | `app_entity_action_btn` | `account_unit_add_btn`、`account_unit_config_btn` |
-
-> **重要**：开发新页面前需确认后端已配置对应权限 key。参考当前项目已有页面判断风格。
-
-#### 开发环境权限自动放行
-
-`getMenuAppActions()` 在 `NODE_ENV=development` 时将所有 `menu.json` 中的 path 设为 `true`：
-
-```tsx
-// src/util/index.ts
-export const getMenuAppActions = (list?: MenuJsonData[]) => {
-  const initialAuth: Record<string, true> = {};
-  if (process.env.NODE_ENV === 'development') {
-    menuJsonList?.forEach(item => {
-      if (item.path) initialAuth[item.path] = true;
-      if (item.children) { /* 递归子菜单 */ }
-    });
-  }
-  return initialAuth;
-};
-```
-
-> **注意**：`getMenuAppActions()` 只处理路由权限（path），操作权限（如 `createBizType`）在开发环境下由 `checkAuth` 中的 `NODE_ENV === 'development'` 判断自动放行。
-
-### 8.4 操作按钮权限规范
-
-#### 组件包裹模式（推荐）
-
-```tsx
-import Auth, { checkAuth } from '@/components/auth';
-
-// 新建按钮
-<Auth authKey="createBizType">
-  <Button type="primary" onClick={handleCreate}>新建</Button>
-</Auth>
-
-// 编辑按钮
-<Auth authKey="updateBizType">
-  <Typography.Link onClick={() => handleEdit(record)}>编辑</Typography.Link>
-</Auth>
-
-// 删除按钮
-<Auth authKey="deleteBizType">
-  <Typography.Link onClick={() => handleDelete(record)}>删除</Typography.Link>
-</Auth>
-```
-
-#### 操作列完整示例（CRUD 四按钮）
-
-```tsx
-{
-  title: '操作', dataIndex: 'actions', fixed: 'right',
-  search: false, align: 'center', width: 180,
-  render(_, record) {
-    return <Space>
-      {/* 查看：无需权限控制 */}
-      <Typography.Link onClick={() => handleView(record)}>查看</Typography.Link>
-
-      {/* 编辑：受 update 权限控制 */}
-      <Auth authKey="updateBizType">
-        <Typography.Link
-          disabled={record.state === BizTypeState.Enable}
-          onClick={() => handleEdit(record)}
-        >编辑</Typography.Link>
-      </Auth>
-
-      {/* 删除：受 delete 权限控制 */}
-      <Auth authKey="deleteBizType">
-        <Typography.Link
-          disabled={record.state === BizTypeState.Enable}
-          onClick={() => handleDelete(record)}
-        >删除</Typography.Link>
-      </Auth>
-
-      {/* 启用/禁用：受 update 权限控制 */}
-      <Auth authKey="updateBizType">
-        <Typography.Link onClick={() => handleToggleState(record)}>
-          {record.state === BizTypeState.Enable ? '禁用' : '启用'}
-        </Typography.Link>
-      </Auth>
-    </Space>;
-  }
-}
-```
-
-#### 多权限组合
-
-```tsx
-// AND 模式（默认）：需要同时满足所有权限
-<Auth authKey={['perm1', 'perm2']}>
-  <Button>操作</Button>
-</Auth>
-
-// OR 模式：满足任一权限即可
-<Auth authKey={['perm1', 'perm2']} keyAndOr="or">
-  <Button>操作</Button>
-</Auth>
-
-// 无权限时的占位内容
-<Auth authKey="specialPerm" fallback={<span>无权限</span>}>
-  <Button>操作</Button>
-</Auth>
-```
-
-#### 编程式权限检查
-
-```tsx
-import { checkAuth } from '@/components/auth';
-
-// 在非 JSX 场景使用
-const handleBatchDelete = () => {
-  if (!checkAuth('deleteBizType')) {
-    message.warning('无删除权限');
-    return;
-  }
-  // 执行批量删除...
-};
-```
-
-#### Auth 组件实现原理
-
-```tsx
-// src/components/auth/index.tsx
-// checkAuth 内部使用 useAuth() 获取权限表
-// 开发环境下（NODE_ENV === 'development'）直接返回 true
-export const checkAuth = (authKey: string, auth?: AuthType) => {
-  if (!auth) [auth] = useAuth();
-  return NODE_ENV === 'development' || auth[authKey];
-};
-```
-
-### 8.5 权限检查清单
-
-- [ ] `pageConfig.auth` 中的 path 与 `menu.json` 一致
-- [ ] 每个操作按钮用 `<Auth authKey="...">` 包裹
-- [ ] 查看操作不设置权限控制
-- [ ] 编辑/启用/禁用共用 `update` 权限
-- [ ] 删除使用 `delete` 权限
-- [ ] 新建使用 `create` 权限
-- [ ] 权限 key 已在后端管理系统配置
-
----
-
-## 九、确认弹窗模式
-
-```tsx
-import { ConfirmKnown } from '@/components/modalConfirm';
-
-// 标准确认弹窗
-Modal.confirm({
-  title: '删除',
-  content: `是否删除：${record.name}？`,
-  onOk: async () => {
-    return new Promise(async (resolve, reject) => {
-      const result = await mutDeleteXxx(record.id);
-      if (result) {
-        message.success('执行成功');
-        resolve(true);
-      } else {
-        reject();
-      }
-    });
-  },
-});
-
-// 带"我已知悉"确认的危险操作弹窗
-const mc = Modal.confirm({
-  title: '撤单',
-  content: (
-    <ConfirmKnown
-      showCheck={warningStr.length > 0}
-      onChange={(check) => mc.update({ okButtonProps: { disabled: !check } })}
-    >
-      <div>是否对{record.orderNo}进行撤单操作？</div>
-    </ConfirmKnown>
-  ),
-  onOk: async () => { /* 同上 Promise 模式 */ },
-});
-```
-
----
-
-## 十、通用工具函数
-
-### 数据操作
-
-| 函数 | 用途 | 示例 |
-|------|------|------|
-| `saveDataSource(dataSource, data)` | 新增或更新扁平数组数据 | `setDataSource(saveDataSource(list, newItem))` |
-| `delDataSource(dataSource, id)` | 按 ID 移除 | `setDataSource(delDataSource(list, id))` |
-| `updateFormat(target, original)` | 对比差异生成更新 patch | `mutUpdate(id, updateFormat(form, info))` |
-| `formatTreeData(allList, parentList?, defineKey?)` | 扁平数组 → 树结构 | 构建 Ant Design Tree 数据 |
-| `loopTreeData(data, key, callback)` | 遍历树找节点 | 查找并修改树中某个节点 |
-| `saveTreeData(treeList, updateData)` | 树中插入/更新节点 | 树形 CRUD 后本地更新 |
-| `delTreeData(treeList, id)` | 树中删除节点 | |
-| `getTreeDropData(treeData, dragInfo)` | 处理 Tree 拖拽结果 | 返回 `{ sourceId, targetId, action, newTreeData }` |
-
-### 其他工具
-
-| 函数 | 用途 |
-|------|------|
-| `firstUpper(str)` | 首字母大写 |
-| `randomId(len)` | 随机字符串 |
-| `browserLanguage()` | 检测浏览器语言 |
-| `getMenuAppActions(list?)` | 开发模式从 menu.json 生成权限 map |
-| `getANDResult(list, value)` | 位与运算（多选标记字段展示） |
-| `getORResult(list)` | 位或运算（多选标记字段存储） |
-| `openDetailUrl(data, type)` | 生成详情页 URL |
-| `errTextFormat(str)` | 格式化 KO 错误消息 |
-| `roundUp(num, decimals)` | 向上保留小数 |
-| `roundDown(num, decimals)` | 向下保留小数 |
-| `onMousedown({ target, click, doubleClick, textSelection })` | 区分单击/双击/文本选中 |
-
-### updateFormat 详解
-
-> **核心规则：所有更新接口（`mutUpdateXxx`）必须使用 `updateFormat` 处理数据。**
->
-> 不要直接传整个表单对象给 update mutation，必须用 `updateFormat(values, originalInfo)` 做差异对比。
-
-#### 为什么必须用
-
-| 问题 | 直接传整个表单 | 用 updateFormat |
-|------|--------------|----------------|
-| 未修改的字段 | 也会发送，浪费带宽 | 只发变化的字段 |
-| 清空字段 | 传 `null`/`undefined`，后端不知道是"清空"还是"没传" | 自动生成 `clearXxx: true`，后端明确知道要清空 |
-| 后端校验 | 可能触发不必要的必填校验 | 只校验真正变化的字段 |
-
-#### 用法
-
-```ts
-import { updateFormat } from '@/util';
-
-// 对比 target 和 original，只返回变化的字段
-// 清空字段时自动生成 clearXxx: true
-updateFormat(
-  { name: 'new', description: null, code: 'same' },
-  { name: 'old', description: 'desc', code: 'same' }
-)
-// 结果: { name: 'new', clearDescription: true }
-// code 没变，不在结果中
-```
-
-#### 正确 vs 错误示例
-
-```tsx
-// ✅ 正确：用 updateFormat 做差异对比
-onFinish={async (values) => {
-  const result = await mutUpdateXxx(props.id, updateFormat<UpdateXxxInput>({
-    name: values.name,
-    description: values.description,
-    appID: Number(values.appID),
-  }, info || {}));
-  // ...
-}}
-
-// ❌ 错误：直接传整个表单
-onFinish={async (values) => {
-  const result = await mutUpdateXxx(props.id, values);  // 不要这样做！
-  // ...
-}}
-
-// ❌ 错误：手动拼装但漏了 clearXxx
-onFinish={async (values) => {
-  const result = await mutUpdateXxx(props.id, {
-    name: values.name,
-    description: values.description,
-    // description 清空了但没传 clearDescription: true，后端无法清空该字段
-  });
-  // ...
-}}
-```
-
-#### 带排除字段的用法
-
-```ts
-// 第三个参数 excludeTargetKey 可排除不需要对比的字段
-updateFormat<UpdateXxxInput>(
-  { name: 'new', state: 'Enable', code: 'same' },
-  { name: 'old', state: 'Enable', code: 'same' },
-  ['state']  // state 不参与差异对比
-)
-// 结果: { name: 'new' }
-// state 被排除，即使没变也不影响
-```
-
-#### 实现原理
-
-```ts
-// src/util/index.ts
-export const updateFormat = <T>(
-  target: T,
-  original: Record<string, any>,
-  excludeTargetKey?: string[]
-) => {
-  const ud: Record<string, any> = {};
-  for (const key in target) {
-    if (excludeTargetKey && excludeTargetKey.includes(key)) continue;
-    const tValue = target[key];
-    if (tValue !== original[key]) {
-      ud[key] = tValue;
-      // 非 boolean 类型的空值 → 生成 clearXxx: true
-      if (typeof tValue != 'boolean' && !tValue) {
-        const clearKey = `clear${firstUpper(key)}`.replace('ID', '');
-        ud[clearKey] = true;
-      }
-    }
-  }
-  return ud as T;
-};
-```
-
-> **注意**：`clearXxx` 的命名规则是 `clear` + 首字母大写字段名，但 `ID` 后缀会被去掉。例如 `appID` → `clearApp`，不是 `clearAppID`。
-
-### onMousedown 详解
-
-```ts
-// 解决表格行点击和文本选中冲突
-onMousedown({
-  target: e.target as HTMLElement,
-  exclusionClassNames: ['checkbox', 'expand'],  // 排除的元素类名
-  click: () => { /* 单击：选中行 */ },
-  doubleClick: () => { /* 双击：展开/编辑 */ },
-  textSelection: () => { /* 文本选中：不触发点击 */ },
-});
-```
-
----
-
-## 十之一、用户信息缓存（cacheUser / getCacheUser）
-
-用于将 **用户 ID**（`createdBy` / `updatedBy` / `traderID` / `owner` 等数字字段）解析为用户显示名（`displayName`）。
-
-### 适用场景
-
-| 缓存 | 解析对象 | 适用字段 | 来源 |
-|------|---------|---------|------|
-| **cacheUser** | 系统用户（会员/员工） | `createdBy` / `updatedBy` / `traderID` / `owner` / 任意 user ID | `@knockout-js/api` |
-
-"创建人"、"更新人" 等通常是 user ID → 用 `cacheUser`。
-
-### 导入
-
-```ts
-// 单条查询
-import { getCacheUser } from '@knockout-js/api';
-import { User } from '@knockout-js/api/ucenter';   // User 类型
-
-// 列表批量
-import { batchInitCacheUser, cacheUser } from '@knockout-js/api/esm/ucenter';
-```
-
-### 详情页 — 单条解析
-
-```tsx
-const [info, setInfo] = useState<Xxx>();
-const [createdByUserInfo, setCreatedByUserInfo] = useState<User>();
-
-const reqInfo = async () => {
-  const result = await getXxxInfo(id);
-  if (result) {
-    setInfo(result);
-    if (result.createdBy) {
-      const userInfo = await getCacheUser(`${result.createdBy}`);
-      setCreatedByUserInfo(userInfo);
-    }
-  }
-};
-
-// JSX 渲染：优先 displayName，兜底原始 ID
-<Typography.Text>
-  <span className="label">{t('created_by')}：</span>
-  {createdByUserInfo?.displayName ?? info.createdBy ?? '-'}
-</Typography.Text>
-```
-
-### 列表页 — 批量解析
-
-在 `request` 中拉取数据后批量初始化缓存：
-
-```tsx
-request={async (params) => {
-  // ... 请求数据
-  const table = { data: [...], success: true, total: 0 };
-  // ...
-
-  // 批量缓存用户信息（过滤掉无效 ID）
-  await batchInitCacheUser(
-    table.data.filter(item => Number(item.createdBy) > 0).map(item => `${item.createdBy}`)
-  );
-
-  return table;
-}}
-```
-
-列定义中通过 `cacheUser` 字典直接读取：
-
-```tsx
-{
-  title: '创建人', dataIndex: 'createdBy', width: 100,
-  renderText: (text, record) => {
-    const user = record.createdBy ? cacheUser[record.createdBy] : undefined;
-    return user?.displayName ?? record.createdBy;
-  },
-}
-```
-
-### 关键规则
-
-1. **ID 必须转字符串**：`getCacheUser(`${id}`)` — 参数类型是 string
-2. **批量前先过滤无效 ID**：`filter(item => Number(item.xxxID) > 0)`
-3. **兜底显示原始 ID**：`userInfo?.displayName ?? record.xxxID` — 缓存未命中时不显示空白
-4. **User 类型字段**：`displayName`（显示名）、`id`、`userType` 等
-
----
-
-## 十一、localStorage 封装
-
-每个项目使用命名空间隔离：
-
-```ts
-// src/pkg/localStore.ts
-const module = '项目名';  // 如 'meta'、'user'、'msg' — 按当前项目配置
-
-getItem<T>(key: string): T | null    // 读取
-setItem<T>(key: string, value: T)    // 写入
-removeItem(key: string)              // 删除
-monitorKeyChange(keys)               // 跨标签页同步（storage 事件 + 200ms 节流）
-```
-
-用法：
-```ts
-import { getItem, setItem, removeItem } from '@/pkg/localStore';
-setItem<string>('token', token);
-const token = getItem<string>('token');
-```
-
----
-
-## 十二、状态管理（ICE Store）
-
-### Model 定义
-
-```ts
-// src/models/user.ts
-import { createModel } from 'ice';
-
-export default createModel({
-  state: { token: '', user: null } as ModelState,
-  reducers: {
-    updateToken(prevState, payload: string) {
-      if (payload) setItem('token', payload);
-      else removeItem('token');
-      prevState.token = payload;
-    },
-  },
-  effects: () => ({
-    async logout() { this.updateToken(''); },
-  }),
-});
-```
-
-### 组件中使用
-
-```tsx
-import store from '@/store';
-
-const [userState] = store.useModel('user');
-const [appState, appDispatcher] = store.useModel('app');
-appDispatcher.updateLocale('en-US');
-```
-
----
-
-## 十三、日期处理
-
-```ts
-import dayjs from 'dayjs';
-
-// 格式化
-dayjs().format('YYYY-MM-DD');
-dayjs().format('YYYY-MM-DDTHH:mm:ss.SSSZ');
-
-// 日期范围 → WhereInput
-where.createdAtGTE = dayjs(params.dateRange[0]).format('YYYY-MM-DDT00:00:00Z');
-where.createdAtLTE = dayjs(params.dateRange[1]).format('YYYY-MM-DDT23:59:59Z');
-
-// 表格显示
-render: (_, record) => dayjs(record.createdAt).format('YYYY-MM-DD')
-```
-
----
-
-## 十四、国际化
-
-```tsx
-import { useTranslation } from 'react-i18next';
-
-const { t } = useTranslation();
-
-// 使用
-<Button>{t('create')}</Button>
-searchText: `${t('query')}`
-resetText: `${t('reset')}`
-message.success(`${t('action_success')}`)
-```
-
-常用 key：`query`、`reset`、`create`、`editor`、`view`、`operation`、`action_success`
-
----
-
-## 十五、CSS 类名约定
-
-| 类名 | 用途 |
-|------|------|
-| `qeelyn-page-container` | PageContainer 标准类名 |
-| `qeelyn-pro-table-search` | ProTable 搜索区域标准类名 |
-
----
-
-## 十六、开发命令速查
-
-| 命令 | 说明 |
-|------|------|
-| `pnpm dev` | 启动开发服务器（带 mock） |
-| `pnpm start` | 启动开发服务器（禁用 mock） |
-| `pnpm build` | 生产构建 |
-| `pnpm eslint` | ESLint 检查 |
-| `pnpm eslint:fix` | ESLint 自动修复 |
-| `pnpm stylelint` | Stylelint 检查 |
-| `pnpm gqlgen` | GraphQL 代码生成 |
-| `pnpm gqlgen:schema-ast` | 从远程拉取 Schema |
-| `pnpm gqlgen:watch` | 监听模式生成 |
-
----
-
-## 十七、枚举映射命名约定
-
-| 模式 | 示例 |
-|------|------|
-| `Enum{Entity}{Field}` | `EnumOrderOrdStatus`、`EnumBizTypeBizTypeState` |
-| `{ text, tagColor, textCn? }` | 每个枚举值包含显示文本和 Tag 颜色 |
-
-```ts
-// 完整映射
-export const EnumOrderOrdStatus: Record<OrderOrdStatus, { text: string; tagColor: string; textCn?: string }> = {
-  [OrderOrdStatus.New]: { text: 'New', tagColor: '#ffcc5f', textCn: '已报' },
-  [OrderOrdStatus.Filled]: { text: 'Filled', tagColor: '#30c880', textCn: '已成' },
-  [OrderOrdStatus.Canceled]: { text: 'Canceled', tagColor: '#ff4d4f', textCn: '已撤' },
-};
-
-// 简单映射
-export const EnumUnitUnitState = {
-  Disable: { text: '禁用', tagColor: 'error' },
-  Enable: { text: '启用', tagColor: 'success' },
-};
-```
-
----
-
-## 十八、命名规范速查
-
-| 类型 | 规则 | 示例 |
-|------|------|------|
-| 组件 | PascalCase | `ListOrder`、`ConfirmKnown` |
-| 查询函数 | `get` + 实体 + 动作 | `getOrderList`、`getOrderInfo` |
-| Mutation 函数 | `mut` + 动作 | `mutCancelOrder`、`mutNewOrder` |
-| 枚举映射 | `Enum` + 实体名 | `EnumOrderOrdStatus` |
-| 校验函数 | `is` + 动作 | `isCancelOrder` |
-| 事件处理 | `on` + 动作 | `onClick`、`onChange`、`onFinish` |
-| 类型/接口 | PascalCase | `OrderWhereInput`、`MyComponentRef` |
-| 页面文件 | `index.tsx` | `pages/ui/list/index.tsx` |
-| 服务文件 | `index.ts` | `services/ui/index.ts` |
-
----
-
-## 十九、组件编写模式
-
-### 函数组件（默认）
-
-```tsx
-// 匿名箭头 + 内联 Props
-export default (props: { title: string; onSuccess?: () => void }) => {
-  return <div>...</div>;
-};
-```
-
-### forwardRef（暴露方法给父组件）
-
-```tsx
-export interface MyComponentRef {
-  reload: () => void;
-  clearAutoReload: () => void;
-}
-
-export default forwardRef<MyComponentRef, Props>((props, ref) => {
-  useImperativeHandle(ref, () => ({
-    reload: () => { /* ... */ },
-    clearAutoReload: () => { /* ... */ },
-  }));
-  return <div>...</div>;
-});
-```
-
----
-
-## 二十、微前端通信
-
-```tsx
-import { starkStore, starkEvent } from '@ice/stark-data';
-import { isInIcestark } from '@ice/stark-app';
-
-// 读取宿主状态
-const user = starkStore.getItem('user');
-
-// 发送事件
-starkEvent.emit('set-user', user);
-starkEvent.emit('set-token', newToken);
-```
-
----
-
-## 二十一、字典下拉与业务选择器
-
-### 字典下拉（meta 项目常用）
-
-使用 `getDictionaryValueList` 从 meta 服务获取字典数据，通过 `typeCode` 过滤：
-
-```tsx
-import { getDictionaryValueList } from '@/services/meta';
-
-// 方式 1：单个 typeCode
-const loadDict = async () => {
-  const result = await getDictionaryValueList({
-    where: { typeCode: 'BizModule', isEnabled: 'Y' },
-  });
-  return result?.edges?.map(e => ({
-    label: e.node.name,
-    value: e.node.code,
-  })) ?? [];
-};
-
-// 在 ProFormSelect 中使用
-<ProFormSelect
-  name="moduleCode"
-  label="业务模块"
-  request={loadDict}
-/>
-
-// 方式 2：多个 typeCode 批量加载
-const typeCodes = ['BizModule', 'OrderType', 'MarketType'];
-const [dictData, setDictData] = useState<Record<string, { label: string; value: string }[]>>({});
-
-useEffect(() => {
-  const loadAll = async () => {
-    const data: Record<string, { label: string; value: string }[]> = {};
-    for (const code of typeCodes) {
-      const res = await getDictionaryValueList({ where: { typeCode: code, isEnabled: 'Y' } });
-      data[code] = res?.edges?.map(e => ({
-        label: e.node.name,
-        value: e.node.code,
-      })) ?? [];
-    }
-    setDictData(data);
-  };
-  loadAll();
-}, []);
-
-// 在表格列中使用字典值显示
-{
-  title: '业务模块', dataIndex: 'moduleCode', width: 120,
-  renderText: (text) => dictData['BizModule']?.find(d => d.value === text)?.label ?? text,
-}
-```
-
-### AppSelect 应用选择器
-
-```tsx
-import { AppSelect } from '@knockout-js/org';
-
-// 方式 1：返回完整对象（默认）
-<ProFormSelect
-  name="appID"
-  label="所属应用"
-  addonAfter={<AppSelect />}  // 弹窗形式
-/>
-
-// 方式 2：只返回 id
-<ProFormSelect
-  name="appID"
-  label="所属应用"
-  addonAfter={<AppSelect changeValue="id" />}
-/>
-
-// 方式 3：作为独立表单组件
-<AppSelect
-  value={appID}
-  onChange={(val) => setAppID(val)}
-/>
-```
-
----
-
-## 二十二、非标准 Query/Mutation 模式
-
-### 非标准 Query（自定义输入参数）
-
-当 GraphQL schema 定义的查询不是标准 Relay 分页时：
-
-```ts
-// Schema: markets(input: MarketsInput!): MarketsResponse!
-const queryMarkets = gql(`
-  query markets($input: MarketsInput!) {
-    markets(input: $input) {
-      markets { id code name description }
-    }
-  }
-`);
-
-export const getMarkets = async (input: MarketsInput) => {
-  const result = await query(queryMarkets, { input }, {
-    instanceName: instanceName.XXX,
-    fetchOptions: { headers: KoHeaders.noCache },
-  });
-  return result.data?.markets;
-};
-```
-
-### 非标准 Mutation（多参数）
-
-当 mutation 需要多个独立参数而非单一 input：
-
-```ts
-// Schema: deleteWatchlist(materialID: ID!, scene: WatchScene!): Boolean!
-const mutationDeleteWatchlist = gql(`
-  mutation deleteWatchlist($materialID: ID!, $scene: WatchScene!) {
-    deleteWatchlist(materialID: $materialID, scene: $scene)
-  }
-`);
-
-export const mutDeleteWatchlist = async (materialID: string, scene: WatchScene) => {
-  const result = await mutation(mutationDeleteWatchlist, { materialID, scene }, {
-    instanceName: instanceName.XXX,
-  });
-  return result.data?.deleteWatchlist;
-};
-
-// 调用示例
-await mutDeleteWatchlist(record.materialID, WatchScene.Trading);
-```
-
-### 聚合查询（返回统计信息）
-
-```ts
-const queryDashboardStats = gql(`
-  query dashboardStats($where: StatsWhereInput) {
-    stats(where: $where) {
-      totalOrders
-      totalVolume
-      totalCommission
-    }
-  }
-`);
-
-export const getDashboardStats = async (where?: StatsWhereInput) => {
-  const result = await query(queryDashboardStats, { where });
-  return result.data?.stats;
-};
-```
-
----
-
-## 二十三、服务层 JSDoc 注释规范
-
-每个导出的函数和枚举必须添加 JSDoc 注释：
-
-```ts
-/**
- * 订单状态枚举映射
- */
-export const EnumOrderStatus: Record<string, { text: string; tagColor: string }> = {
-  New: { text: '新建', tagColor: 'processing' },
-  Filled: { text: '已成', tagColor: 'success' },
-};
-
-/**
- * 订单列表 GraphQL 查询
- */
-const queryOrderList = gql(`...`);
-
-/**
- * 获取订单列表（分页）
- * @param gather - 分页和过滤参数
- * @returns Relay 连接对象，包含 totalCount 和 edges
- */
-export const getOrderList = async (gather: {
-  current?: number;
-  pageSize?: number;
-  where?: OrderWhereInput;
-  orderBy?: OrderOrder;
-}) => {
-  // ...
-};
-
-/**
- * 获取订单详情
- * @param id - 订单 ID
- * @returns 订单对象或 null
- */
-export const getOrderInfo = async (id: string) => {
-  // ...
-};
-
-/**
- * 创建订单
- * @param input - 创建订单输入
- * @returns 创建的订单对象
- */
-export const mutCreateOrder = async (input: CreateOrderInput) => {
-  // ...
-};
-
-/**
- * 更新订单
- * @param id - 订单 ID
- * @param input - 更新输入
- * @returns 更新后的订单对象
- */
-export const mutUpdateOrder = async (id: string, input: UpdateOrderInput) => {
-  // ...
-};
-
-/**
- * 删除订单
- * @param id - 订单 ID
- * @returns 是否成功
- */
-export const mutDeleteOrder = async (id: string) => {
-  // ...
-};
-```
-
-### 文件头注释
-
-每个服务文件开头应包含模块说明：
-
-```ts
-/**
- * 订单管理 GraphQL API 服务接口
- * 配合 gqlgen 使用，运行 `pnpm gqlgen` 生成类型
- */
-import { gql } from '@/generated/order';
-// ...
-```
-
----
-
-## 二十四、gqlgen 配置与工作流
-
-### gqlgen 配置文件
-
-`script/gqlgen.ts` 控制代码生成行为：
-
-```ts
-export default {
-  // 指定 documents 路径，确保包含服务目录
-  documents: [
-    "src/services/**/*.ts",  // 按项目实际模块目录配置
-  ],
-  // 输出生成文件到 src/generated/
-  generates: {
-    "src/generated/": {
-      // ...
-    },
-  },
-};
-```
-
-**新增服务模块时，必须更新 `documents` 数组**，否则 `gql()` 中的类型无法解析。
-
-### 完整工作流
-
-```bash
-# 1. 更新 Schema（可选，网络不通时跳过）
-pnpm gqlgen:schema-ast
-
-# 2. 分析 Schema（读取 script/generated/xxx.graphql）
-# - 识别 Query（列表/详情）
-# - 识别 Mutation（create/update/delete）
-# - 识别 Enum（需导出给 UI 的枚举）
-
-# 3. 更新 gqlgen 配置（如果是新模块）
-# 编辑 script/gqlgen.ts，添加 documents 路径
-
-# 4. 编写服务函数
-# 在 src/services/模块名/index.ts 中写 gql() 模板
-
-# 5. 生成 TypeScript 类型
-pnpm gqlgen
-
-# 6. 验证类型正确性
-# 检查无类型错误，确保导入路径正确
-```
-
-### Schema 分析要点
-
-读取 `script/generated/模块名.graphql` 时关注：
-
-| 类型 | 识别方式 | 处理方式 |
-|------|---------|---------|
-| 标准列表查询 | `xxx(first: Int, where: XxxWhereInput)` | 用 `paging()` |
-| 单条查询 | `node(id: GID!) { ... on Xxx }` | 用 `query()` + `gid()` |
-| 自定义查询 | `markets(input: MarketsInput!)` | 直接传参，用 `query()` |
-| 标准 Mutation | `createXxx(input: CreateXxxInput!)` | 用 `mutation()` |
-| 多参数 Mutation | `deleteXxx(id: ID!, scene: Scene!)` | 多个参数分别传递 |
-| 枚举 | `enum XxxState { Enable Disable }` | 导出为 `EnumXxxState` 映射 |
-
----
-
-## 二十五、分页参数详解
-
-### paging() 函数签名
-
-```ts
-paging<T>(
-  document: DocumentNode,      // gql 查询文档
-  variables: {                  // 查询变量
-    first?: number;             // 每页数量
-    after?: string;             // 游标
-    where?: WhereInput;         // 过滤条件
-    orderBy?: OrderInput;       // 排序
-  },
-  page: number,                 // 当前页码（从 1 开始）
-  options?: {
-    instanceName?: string;      // GraphQL 实例名
-    fetchOptions?: {
-      headers?: Headers;        // 请求头（如 KoHeaders.noCache）
-    };
-  }
-): Promise<{ data: { xxxs: Connection<T> } }>
-```
-
-### 分页参数转换
-
-ProTable 的 `params.current` 从 1 开始，`paging()` 也使用 1-based：
-
-```ts
-const result = await paging(queryList, {
-  first: gather.pageSize || 20,
-  where: gather.where,
-  orderBy: gather.orderBy ?? {
-    direction: OrderDirection.Desc,
-    field: XxxOrderField.CreatedAt,
-  },
-}, gather.current || 1, {        // 默认第 1 页
-  instanceName: instanceName.XXX,
-  fetchOptions: { headers: KoHeaders.noCache },
-});
-```
-
-### Relay Connection 结构
-
-```ts
-interface Connection<T> {
-  totalCount: number;
-  pageInfo: {
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
-    startCursor: string;
-    endCursor: string;
-  };
-  edges: Array<{
-    cursor: string;
-    node: T;
-  }>;
-}
-```
-
----
-
-## 二十六、本地数据更新模式
-
-### saveDataSource - 新增或更新
-
-```ts
-import { saveDataSource } from '@/util';
-
-// 新增：如果数组中没有该 id，则追加
-// 更新：如果数组中有该 id，则替换
-setDataSource(saveDataSource(dataSource, newItem));
-
-// 典型场景：编辑弹窗保存成功后
-const handleEditorClose = async (isSuccess?: boolean, info?: Xxx) => {
-  if (isSuccess && info) {
-    setDataSource(saveDataSource(dataSource, info));
-  }
-  setModal({ open: false });
-};
-```
-
-### delDataSource - 删除
-
-```ts
-import { delDataSource } from '@/util';
-
-// 按 id 移除数组中的项
-setDataSource(delDataSource(dataSource, record.id));
-
-// 典型场景：删除成功后本地更新，不重新请求
-Modal.confirm({
-  onOk: async () => {
-    const result = await mutDeleteXxx(record.id);
-    if (result) {
-      setDataSource(delDataSource(dataSource, record.id));
-      message.success('删除成功');
-    }
-  },
-});
-```
-
-### updateFormat - 差异对比
-
-```ts
-import { updateFormat } from '@/util';
-
-// 对比 target 和 original，只返回变化的字段
-// 清空字段时自动生成 clearXxx: true
-const patch = updateFormat<UpdateXxxInput>(
-  { name: 'newName', description: null, code: 'sameCode' },
-  { name: 'oldName', description: 'oldDesc', code: 'sameCode' }
-);
-// patch = { name: 'newName', clearDescription: true }
-// code 没变，不在结果中
-
-// 在 ModalForm 中使用
-onFinish={async (values) => {
-  const result = await mutUpdateXxx(props.id, updateFormat<UpdateXxxInput>({
-    name: values.name,
-    description: values.description,
-  }, info || {}));
-  if (result?.id) {
-    props.onClose?.(true, result);
-    message.success('保存成功');
-  }
-}}
-```
-
----
-
-## 二十七、ProTable 行选择与点击处理
-
-### onMousedown 区分点击类型
-
-```tsx
-import { onMousedown } from '@/util';
-
-<ProTable
+  // --- 分页 ---
+  pagination={{ showSizeChanger: true }}
+
+  // --- 行选择（单选） ---
+  rowSelection={{
+    type: 'radio',
+    hideSelectAll: false,
+    selectedRowKeys,
+    onChange: (rowKeys) => setSelectedRowKeys(rowKeys),
+  }}
+
+  // --- 行点击选中 ---
   onRow={(record) => ({
     onMouseDown: (e) => {
       onMousedown({
         target: e.target as HTMLElement,
-        exclusionClassNames: ['ant-checkbox', 'ant-table-row-expand-icon'],
         click: () => {
-          // 单击：选中当前行
           setSelectedRowKeys(prev =>
             prev.includes(record.id) ? [] : [record.id]
           );
-        },
-        doubleClick: () => {
-          // 双击：打开编辑弹窗
-          handleEdit(record);
-        },
-        textSelection: () => {
-          // 文本选中：不触发点击
         },
       });
     },
@@ -2092,96 +256,1329 @@ import { onMousedown } from '@/util';
 />
 ```
 
-### rowSelection 配置
+### 4.4 列定义标准模式
+
+#### 列顺序约定
+
+| 位置 | 列类型 | 说明 |
+|------|--------|------|
+| 1 | **ID 列** | 主键标识，默认隐藏 |
+| 2~N-2 | **业务列** | 编码、名称、状态等 |
+| N-1 | **占位列** | `{ search: false, hideInSetting: true }` |
+| N | **操作列** | `fixed: 'right'` |
+
+#### ID 列（必备，首位）
+
+```tsx
+{
+  title: 'ID',
+  dataIndex: 'id',
+  width: 100,
+  order: -999,                              // 搜索表单中排最后
+  render(_, record) {
+    return (
+      <Typography.Text
+        copyable={{ text: record.id, tooltips: ['复制ID', '已复制'] }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {record.id}
+      </Typography.Text>
+    );
+  },
+},
+```
+
+#### 业务列
+
+```tsx
+{ title: '编码', dataIndex: 'code', width: 120 },
+{ title: '名称', dataIndex: 'name', minWidth: 160 },
+{ title: '描述', dataIndex: 'description', width: 200, search: false, ellipsis: true },
+{ title: '排序', dataIndex: 'listOrder', width: 100, search: false, align: 'center' },
+```
+
+#### 状态列（枚举 Tag）
+
+```tsx
+{
+  title: '状态',
+  dataIndex: 'state',
+  valueType: 'select',
+  width: 120,
+  align: 'center',
+  valueEnum: EnumXxxState,
+  render(_, record) {
+    return (
+      <Tag color={EnumXxxState[record.state]?.tagColor}>
+        {EnumXxxState[record.state]?.text}
+      </Tag>
+    );
+  },
+},
+```
+
+#### 日期列
+
+```tsx
+{
+  title: '新建时间',
+  dataIndex: 'createdAt',
+  valueType: 'date',
+  search: false,
+  width: 120,
+  renderText: (text) => text ? dayjs(text).format('YYYY-MM-DD') : '-',
+},
+```
+
+#### 数值列（右对齐）
+
+```tsx
+{
+  title: '行情价',
+  dataIndex: 'last',
+  width: 100,
+  align: 'right',
+  search: false,
+  render: (_, record) => record.last ? record.last.toFixed(3) : '-',
+},
+```
+
+#### 占位列（操作列前，固定写法）
+
+```tsx
+{ search: false, hideInSetting: true },
+```
+
+### 4.5 操作列配置
+
+```tsx
+{
+  title: '操作',
+  dataIndex: 'actions',
+  fixed: 'right',
+  search: false,
+  align: 'center',
+  width: 120,          // 根据按钮数量调整
+  hideInSetting: true,
+  render(_, record) {
+    return (
+      <Space split={<Divider type="vertical" className="ql-divider-gray" />} size={0}>
+        <Auth authKey="updateXxx">
+          <Typography.Link onClick={() => {
+            setModal({ open: true, title: `编辑 ${record.name}`, id: record.id, readonly: false });
+          }}>编辑</Typography.Link>
+        </Auth>
+        <Auth authKey="deleteXxx">
+          <Typography.Link onClick={() => {
+            Modal.confirm({
+              title: '删除',
+              content: `是否删除：${record.name}？`,
+              onOk: async () => {
+                return new Promise(async (resolve, reject) => {
+                  const result = await mutDeleteXxx(record.id);
+                  if (result) {
+                    message.success('执行成功');
+                    setDataSource(prev => prev.filter(item => item.id !== record.id));
+                    resolve(true);
+                  } else { reject(); }
+                });
+              },
+            });
+          }}>删除</Typography.Link>
+        </Auth>
+      </Space>
+    );
+  },
+},
+```
+
+**操作列宽度参考：**
+
+| 按钮组合 | 建议宽度 |
+|---------|---------|
+| 编辑 + 删除 | `120` |
+| 查看 + 编辑 + 删除 | `180` |
+| 查看 + 编辑 + 启用/禁用 + 删除 | `220` ~ `240` |
+| 5+ 按钮（含更多操作） | `280` ~ `310` |
+
+**操作按钮间分割线规范：**
+- 使用 `<Space split={<Divider type="vertical" className="ql-divider-gray" />} size={0}>`
+- `ql-divider-gray` 颜色为 `#bcbec3`（浅灰色竖线）
+- `Space` 的 `size={0}`，由 `split` 属性自动插入分割线
+- 此模式在项目中出现 50+ 次，是**全局统一的操作列分割线方案**
+
+---
+
+## 五、列宽拖拽处理（useResizableProTable）
+
+### 5.1 Hook 用法
+
+```tsx
+import { useResizableProTable } from '@/util/hook';
+
+const { columns: finalColumns, components, tableWidth } = useResizableProTable<EntityType>(() => ({
+  columns: [/* 原始列定义 */],
+  minWidth?: 100,   // 可选，默认 100
+  maxWidth?: number, // 可选
+}), [/* 依赖数组 */]);
+```
+
+### 5.2 关键行为
+
+- 包装 `react-antd-column-resize` 的 `useAntdColumnResize`
+- **自动剥离** `fixed: 'right'` 列的 `onHeaderCell`，防止操作列出现拖拽手柄
+- 返回 `tableWidth - 200` 作为 `scroll.x` 的宽度（留出 padding）
+- 接受工厂函数 + 依赖数组（类似 `useMemo`/`useEffect`）
+
+### 5.3 ProTable 接线（固定写法）
 
 ```tsx
 <ProTable
-  rowSelection={{
-    type: 'radio',  // 单选用 'radio'，多选用 'checkbox'
-    selectedRowKeys,
-    onChange: setSelectedRowKeys,
+  scroll={{ x: tableWidth }}
+  components={components}
+  columns={finalColumns}
+/>
+```
+
+### 5.4 列宽参考值
+
+| 列类型 | 宽度范围 | 说明 |
+|--------|---------|------|
+| ID | `100` | UUID 标准宽度 |
+| 编码 | `120` ~ `200` | |
+| 名称 | `140` ~ `220` | 用 `minWidth` 可拉伸 |
+| 短文本（符号、区号） | `100` ~ `120` | |
+| 状态 | `100` ~ `120` | `align: 'center'` |
+| 日期 | `120` ~ `160` | |
+| 描述/备注 | `200` | `ellipsis: true` |
+| 操作列 | `120` ~ `310` | 按按钮数量调整 |
+
+---
+
+## 六、Modal + ProForm 弹窗编辑处理
+
+### 6.1 弹窗状态管理
+
+```tsx
+const [modal, setModal] = useState({
+  open: false,
+  title: '',
+  id: '',
+  readonly: false,
+});
+```
+
+### 6.2 条件渲染
+
+```tsx
+{modal.open ? <Editor
+  title={modal.title}
+  id={modal.id}
+  readonly={modal.readonly}
+  onClose={async (isSuccess, info) => {
+    if (isSuccess && info) {
+      setDataSource(saveDataSource(dataSource, info));
+    }
+    setModal({ open: false, title: '', id: '', readonly: false });
+  }}
+/> : <></>}
+```
+
+### 6.3 Editor 组件标准模板
+
+```tsx
+import { ProForm, ProFormText } from '@ant-design/pro-components';
+import { Modal, useLeavePrompt } from '@knockout-js/layout';
+import { Col, Form, message, Row } from 'antd';
+import { useEffect, useState } from 'react';
+
+export default (props: {
+  title: string;
+  onClose: (isSuccess?: boolean, info?: EntityType) => void;
+  readonly?: boolean;
+  id?: string;
+}) => {
+  const [form] = Form.useForm();
+  const [checkLeave, setLeavePromptWhen] = useLeavePrompt();
+  const [info, setInfo] = useState<EntityType>();
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveDisabled, setSaveDisabled] = useState(true);
+
+  // 离开提示绑定
+  useEffect(() => { setLeavePromptWhen(saveDisabled); }, [saveDisabled]);
+
+  return (
+    <Modal
+      width={500}
+      title={props.title}
+      open={true}
+      onCancel={() => {
+        if (checkLeave()) {
+          setSaveDisabled(true);
+          requestAnimationFrame(() => {
+            props.onClose?.();
+          });
+        }
+      }}
+      destroyOnHidden={true}  // 所有 Modal 必须设置
+      footer={props.readonly ? <></> : undefined}
+      okButtonProps={{
+        loading: saveLoading,
+        disabled: saveDisabled,
+      }}
+      onOk={() => {
+        form.submit();
+      }}
+    >
+      <ProForm<FormData>
+        form={form}
+        requiredMark={!props.readonly}
+        submitter={false}
+        onValuesChange={() => { setSaveDisabled(false); }}
+        autoFocusFirstInput
+        request={async () => {
+          const result: FormData = {};
+          setSaveLoading(false);
+          setSaveDisabled(true);
+          if (props.id) {
+            const infoRes = await getXxxInfo(props.id);
+            if (infoRes) {
+              result.name = infoRes.name ?? undefined;
+              setInfo(infoRes);
+            }
+          }
+          return result;
+        }}
+        onFinish={async (values: FormData) => {
+          setSaveLoading(true);
+          if (props.id) {
+            // 编辑：必须使用 updateFormat 做增量 diff
+            const result = await mutUpdateXxx(props.id, updateFormat<UpdateXxxInput>({
+              name: values.name,
+            }, info || {}));
+            if (result?.id) {
+              setSaveDisabled(true);
+              message.success('保存成功');
+              requestAnimationFrame(() => {
+                props.onClose?.(true, result as EntityType);
+              });
+            }
+          } else {
+            // 新建
+            const result = await mutCreateXxx({ name: values.name ?? '' });
+            if (result?.id) {
+              setSaveDisabled(true);
+              message.success('保存成功');
+              requestAnimationFrame(() => {
+                props.onClose?.(true, result as EntityType);
+              });
+            }
+          }
+          setSaveLoading(false);
+          return false;  // 阻止自动关闭
+        }}
+      >
+        <Row gutter={16}>
+          <Col span={12}>
+            <ProFormText
+              name="name"
+              label="名称"
+              rules={[{ required: true, message: '请填写名称' }]}
+              placeholder={props.readonly ? '' : '请输入名称'}
+              fieldProps={{ readOnly: props.readonly }}
+            />
+          </Col>
+        </Row>
+      </ProForm>
+    </Modal>
+  );
+};
+```
+
+### 6.4 关键差异说明（对比旧 ModalForm）
+
+| 方面 | 旧 ModalForm | 新 Modal + ProForm |
+|------|-------------|-------------------|
+| **组件来源** | `ModalForm` from `@ant-design/pro-components` | `Modal` from `@knockout-js/layout` + `ProForm` from `@ant-design/pro-components` |
+| **数据加载** | `request` 属性自动设值 | `ProForm.request` 属性自动设值（返回初始值对象） |
+| **表单提交** | `onFinish` 由 ModalForm 触发 | `Modal.onOk` → `form.submit()` → `ProForm.onFinish` |
+| **关闭处理** | `onOpenChange` | `Modal.onCancel` + `checkLeave()` |
+| **加载状态** | `loading` 属性 | 无需 loading 状态，ProForm.request 自动处理 |
+| **提交按钮** | `submitter` 配置 | `okButtonProps` + `footer` 配置 |
+| **只读模式** | `submitter={readonly ? false : ...}` | `footer={readonly ? <></> : undefined}` |
+| **ProForm 配置** | - | `submitter={false}` 禁用内置提交按钮 |
+
+### 6.5 弹窗关闭后的数据更新模式
+
+| 模式 | 代码 | 适用场景 |
+|------|------|---------|
+| `saveDataSource()` | `setDataSource(saveDataSource(dataSource, info))` | 最通用，自动处理新增/更新 |
+| 带排序 | `saveDataSource(dataSource, info, { sort: 'DESC', sortField: 'listOrder' })` | 有序列表 |
+| 手动处理 | `idx === -1 ? [info, ...prev] : next[idx] = info` | 自定义插入逻辑 |
+| `proTableRef.reload()` | `proTableRef.current?.reload()` | 简单但性能稍差 |
+
+---
+
+## 七、详情编辑页布局（Type D）
+
+### 7.1 整体结构
+
+```tsx
+<PageContainer header={{ style: { display: 'none' } }}>
+  <div className="ql-detail-container">
+    {/* ① 头部 ProCard：标题 + 操作按钮 + 信息栏 */}
+    <ProCard
+      title={
+        <div className="ql-detail-title">
+          {info?.name ? `${isReadonly ? '' : '编辑-'}实体名称：${info.name}` : '新建-实体名称'}
+        </div>
+      }
+      loading={loading && !info}
+      split="horizontal"
+      extra={<Space>
+        {isReadonly && hasId && (
+          <Auth authKey="updateXxx">
+            <Button type="primary" onClick={handleEdit}>编辑</Button>
+          </Auth>
+        )}
+      </Space>}
+    >
+      {hasId && info && (
+        <div className="ql-detail-subTitle ql-detail-subTitle-end-tabs">
+          ...信息栏内容...
+        </div>
+      )}
+    </ProCard>
+
+    {/* ② 内容区域（根据业务复杂度选择不同模式，见 7.1.1） */}
+    {loading ? <></> : <ContentArea ... />}
+  </div>
+</PageContainer>
+```
+
+**层级关系：**
+```
+PageContainer（header 隐藏）
+└── div.ql-detail-container
+    ├── ProCard（头部）
+    │   ├── title: div.ql-detail-title（动态标题）
+    │   ├── extra: Space（操作按钮组）
+    │   └── body: div.ql-detail-subTitle（信息栏，仅 hasId 时显示）
+    └── 内容区域（loading 时不渲染）
+```
+
+#### 7.1.1 内容区域的三种模式
+
+**模式一：ProCard Tab 页签模式（最常用，适合多板块复杂实体）**
+
+```tsx
+<ProCard size="small" tabs={{
+  className: 'ql-detail-tabs',
+  size: 'small',
+  items: [
+    { key: 'basic', label: '基本信息', children: <BasicInfo ... /> },
+    { key: 'detail', label: '详细资料', disabled: !hasId, children: hasId ? <Detail ... /> : null },
+  ],
+}} />
+```
+
+**Tab 内子组件样式约定：**
+- Tab 内的 `<ProCard>` 使用 `className="ql-detail-tabs-proCard"` 统一标题样式（16px，header padding 重置）
+- Tab 内的 `<ProTable>` 使用 `className="ql-detail-tabs-proTable-action"` 调整操作栏间距
+
+**模式二：ProCard 直出模式（适合内容简单、无需分 Tab 的实体）**
+
+```tsx
+<ProCard size="small">
+  <BasicInfo info={info} readonly={isReadonly} ... />
+</ProCard>
+```
+
+**模式三：自定义布局模式（适合特殊交互需求）**
+
+根据业务需要自由组合，如 Splitter 左右分栏、多 ProCard 纵向排列、内嵌表格等：
+
+```tsx
+{/* 示例：左右分栏（树形管理页 Type B） */}
+<Splitter>
+  <Splitter.Panel defaultSize={400}><LeftContent /></Splitter.Panel>
+  <Splitter.Panel>
+    <div style={{ paddingLeft: 24 }}>
+      <div className="ql-tree-form-title">编辑-{selectedNode?.name}</div>
+      <ProForm ... />
+    </div>
+  </Splitter.Panel>
+</Splitter>
+```
+
+> **`ql-tree-form-title`** 用于树形管理页右侧表单区域标题：`font-size: 15px; font-weight: 600; height: 32px; line-height: 32px; margin-bottom: 16px`。
+
+{/* 示例：多 Card 纵向排列 */}
+<Card size="small" style={{ marginBottom: 16 }}><SectionA /></Card>
+<Card size="small" style={{ marginBottom: 16 }}><SectionB /></Card>
+```
+
+### 7.2 头部操作按钮（extra 区域）
+
+ProCard 的 `extra` 区域放置操作按钮，按**只读/编辑两种模式**分组显示：
+
+```tsx
+extra={<Space>
+  {/* 只读模式：显示"编辑"按钮 → 移除 URL 中的 readonly 参数 */}
+  {isReadonly && hasId && (
+    <Auth authKey="updateXxx">
+      <Button type="primary" onClick={() => {
+        const params = new URLSearchParams(searchParams);
+        params.delete('readonly');
+        setSearchParams(params);
+      }}>
+        编辑
+      </Button>
+    </Auth>
+  )}
+
+  {/* 编辑模式：显示业务操作按钮（按实体需求添加） */}
+  {!isReadonly && hasId && (
+    <>
+      <Button onClick={handleToggleState}>
+        {info?.state === 1 ? '禁用' : '启用'}
+      </Button>
+      {/* 其他操作按钮... */}
+    </>
+  )}
+</Space>}
+```
+
+**按钮显示规则：**
+
+| 条件 | 含义 | 展示按钮 |
+|------|------|---------|
+| `isReadonly && hasId` | 只读查看已有记录 | **编辑**（进入编辑模式） |
+| `!isReadonly && hasId` | 编辑已有记录 | 启用/禁用、业务操作等 |
+| `!isReadonly && !hasId` | 新建记录 | 通常无额外按钮（保存由 Tab 内表单处理） |
+
+> **核心逻辑：** "编辑"按钮通过 `params.delete('readonly')` 切换 URL 参数实现只读→编辑的模式切换，而非跳转到新页面。
+
+### 7.3 页面标题规范
+
+详情页有**两处标题**需要保持一致：ProCard 内的 `ql-detail-title` 和浏览器标签页的 `document.title`。
+
+#### 标题文本规则
+
+| 状态 | 格式 | 示例 |
+|------|------|------|
+| 新建 | `新建-{实体类型}` | `新建-产品信息` |
+| 编辑 | `编辑-{实体类型}：{名称/编码}` | `编辑-产品信息：AAPL` |
+| 只读查看 | `{实体类型}：{名称/编码}`（无"编辑-"前缀） | `产品信息：AAPL` |
+
+#### ProCard title（`ql-detail-title`）
+
+```tsx
+<ProCard
+  title={
+    <div className="ql-detail-title">
+      {info?.name
+        ? `${isReadonly ? '' : '编辑-'}产品信息：${info.name}`
+        : '新建-产品信息'}
+    </div>
+  }
+>
+```
+
+#### document.title（浏览器标签页标题）
+
+通过 `useEffect` 同步设置，文本内容与 `ql-detail-title` 保持一致：
+
+```tsx
+useEffect(() => {
+  document.title = info?.name
+    ? `${isReadonly ? '' : '编辑-'}产品信息：${info.name}`
+    : '新建-产品信息';
+}, [info, isReadonly]);
+```
+
+> **注意：** 部分实体使用 `code`（编码）而非 `name`（名称）作为标题展示字段，如标的资料页使用 `info.code`。根据业务场景选择合适的标识字段。
+
+### 7.4 URL 参数驱动
+
+#### 读取参数
+
+```tsx
+const [searchParams, setSearchParams] = useSearchParams();
+const id = searchParams.get('id') ?? '';
+const isReadonly = searchParams.get('readonly') === 'true';
+```
+
+#### 新建保存后更新 URL
+
+新建成功后，需要将新记录的 ID 写入 URL。此时 **必须使用 `{ replace: true }`**，替换当前历史记录而非新增一条，避免浏览器回退时回到空白的新建页面：
+
+```tsx
+// ✅ 正确：使用 replace，回退直接到列表页
+const handleCreated = (newId: string) => {
+  setSearchParams({ id: newId }, { replace: true });
+};
+
+// ❌ 错误：会多一条历史记录，回退停留在无 id 的新建页
+const handleCreated = (newId: string) => {
+  setSearchParams({ id: newId });
+};
+```
+
+`handleCreated` 作为 `onCreated` 回调传递给 `BasicInfo`（或 `EasyOptionInfo`）子组件，子组件在创建 mutation 成功后调用 `props.onCreated?.(result.id)`。
+
+### 7.5 信息栏模板
+
+```tsx
+{hasId && info && (
+  <div className="ql-detail-subTitle ql-detail-subTitle-end-tabs">
+    <Typography.Text>
+      <span className="label">ID：</span>{info.id}
+    </Typography.Text>
+    <Divider type="vertical" className="ql-divider-gray" />
+    <Typography.Text>
+      <span className="label">状态：</span>{stateEnum?.text ?? '-'}
+    </Typography.Text>
+    <Divider type="vertical" className="ql-divider-gray" />
+    <Typography.Text>
+      <span className="label">创建人：</span>{createUser?.displayName ?? info.createdBy ?? '-'}
+    </Typography.Text>
+    <Divider type="vertical" className="ql-divider-gray" />
+    <Typography.Text>
+      <span className="label">创建时间：</span>
+      {info.createdAt ? dayjs(info.createdAt).format('YYYY-MM-DD HH:mm:ss') : '-'}
+    </Typography.Text>
+  </div>
+)}
+```
+
+**信息栏规范：**
+- 字段顺序：`ID` → `状态` → `创建人` → `创建时间`
+- 标签颜色：`#686a8f`（`.label` 类）
+- 分隔符：`<Divider type="vertical" className="ql-divider-gray" />`
+- 空值兜底：`?? '-'`
+- 日期格式：`YYYY-MM-DD HH:mm:ss`
+
+### 7.6 Tab 配置
+
+```tsx
+const tabItems = [
+  { key: 'basic', label: '基本信息', children: <BasicInfo ... /> },
+  { key: 'detail', label: '详细资料', disabled: !hasId,
+    children: hasId ? <DetailComponent ... /> : null },
+];
+```
+
+**规则：** 新建时第一个 Tab 可编辑，其余 Tab `disabled: !hasId`，`children` 设为 `null`。
+
+### 7.7 表单区块间隔
+
+实际项目中使用 **CSS class** 而非 inline style，分两种场景：
+
+**场景一：Tab 内区块（使用 `ql-detail-tabs-proCard`）**
+
+```tsx
+<ProCard
+  className="ql-detail-tabs-proCard"
+  title="标识信息"
+>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</ProCard>
+
+<ProCard
+  className="ql-detail-tabs-proCard"
+  title="其他信息"
+  style={{ marginTop: 16 }}
+>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</ProCard>
+```
+
+**场景二：非 Tab 区块（使用 `ql-tree-form-title`）**
+
+```tsx
+<div>
+  <div className="ql-tree-form-title" style={{ marginBottom: 12 }}>
+    权证/期权信息
+  </div>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</div>
+
+<div>
+  <div className="ql-tree-form-title" style={{ marginBottom: 12 }}>
+    其他
+  </div>
+  <Row gutter={24}>
+    ...表单字段...
+  </Row>
+</div>
+```
+
+**间距规范：**
+- Tab 内区块：使用 `ProCard` + `ql-detail-tabs-proCard` class（标题 15px，font-weight: 600，header padding 重置）
+- 非 Tab 区块：使用 `ql-tree-form-title` class（标题 15px，font-weight: 600，height/line-height: 32px）
+- Row gutter：编辑页 `24`，弹窗 `16`，复杂表单 `20`
+
+**Col span 规范：**
+- 4 列布局（编辑页）：`span={6}`
+- 2 列布局（弹窗）：`span={12}`
+- 全宽（TextArea）：`span={24}`
+
+---
+
+## 八、EditableProTable 行内编辑表格
+
+在详情页或弹窗中，经常需要对子表数据进行行内编辑（如产品的关联标的、规则参数列表等）。使用 `EditableProTable` 实现行内编辑，配合 `value/onChange` 接口作为表单字段直接使用。
+
+### 8.1 组件接口（受控表单字段模式）
+
+```tsx
+export default (props: {
+  value?: RowType[];
+  readonly?: boolean;
+  onChange?: (value?: RowType[]) => void;
+}) => {
+  // ...
+};
+```
+
+> 遵循 antd `Form.Item` 的 `value/onChange` 约定，可直接嵌入 ProForm 中作为表单字段。
+
+### 8.2 核心状态
+
+```tsx
+const [editableKeys, setEditableRowKeys] = useState<Key[]>([]);
+```
+
+### 8.3 列定义要点
+
+```tsx
+const columns = [
+  // 选择列（不可编辑，仅展示）
+  {
+    title: '产品',
+    dataIndex: 'productId',
+    valueType: 'select',
+    editable: false,                        // 该行不可编辑
+    valueEnum: prodEnum,                    // 用于展示映射
+  },
+
+  // 数字列（带格式化）
+  {
+    title: '最大数量',
+    dataIndex: 'maxQty',
+    valueType: 'digit',
+    fieldProps: {
+      formatter: (v: number) => v?.toLocaleString(),
+      parser: (v: string) => v?.replace(/,/g, ''),
+    },
+  },
+
+  // Checkbox 列
+  {
+    title: '允许拆分',
+    dataIndex: 'allowSplit',
+    valueType: 'checkbox',
+    formItemProps: { valuePropName: 'checked' },
+    renderFormItem: () => <Checkbox>允许</Checkbox>,
+    render: (_, record) => record.allowSplit ? '允许' : '不允许',
+  },
+
+  // 占位列
+  { search: false, hideInSetting: true, editable: false },
+
+  // 操作列（仅编辑模式显示）
+  ...(!props.readonly ? [{
+    title: '操作',
+    dataIndex: 'action',
+    valueType: 'option',
+    width: 120,
+    align: 'center',
+    render: (_, record, __, action) => (
+      <Space split={<Divider type="vertical" className="ql-divider-gray" />} size={0}>
+        <Typography.Link onClick={() => action?.startEditable?.(record.id)}>
+          编辑
+        </Typography.Link>
+        <Popconfirm title="是否删除？" onConfirm={() => {
+          props.onChange?.(props.value?.filter(item => item.id !== record.id));
+        }}>
+          <Typography.Link>删除</Typography.Link>
+        </Popconfirm>
+      </Space>
+    ),
+  }] : []),
+];
+```
+
+### 8.4 EditableProTable 配置
+
+```tsx
+<EditableProTable<RowType>
+  rowKey="id"
+  columns={columns}
+  value={props.value}
+  onChange={props.onChange}
+  controlled                                // 受控模式
+  recordCreatorProps={false}                // 禁用内置新增按钮（使用自定义方式）
+  scroll={{ x: tableWidth }}
+  components={components}
+  editable={{
+    type: 'single',                         // 单行编辑（同时只能编辑一行）
+    editableKeys,
+    onChange: setEditableRowKeys,
+
+    // 保存回调：将编辑后的数据通过 onChange 传回父级
+    onSave: async (rowKey, data) => {
+      props.onChange?.(props.value?.map(item =>
+        item.id === data.id ? { ...item, ...data } : item
+      ));
+    },
+
+    // 编辑态操作按钮样式（保存 | 取消，与全局分割线风格一致）
+    actionRender: (row, config, defaultDom) => [
+      <Space split={<Divider type="vertical" className="ql-divider-gray" />} size={0}>
+        {defaultDom.save}
+        {defaultDom.cancel}
+      </Space>,
+    ],
   }}
 />
 ```
 
+### 8.5 自定义新增行
+
+禁用内置 `recordCreatorProps`，通过工具栏按钮（Dropdown、Button 等）自定义新增：
+
+```tsx
+// 方式一：Dropdown 选择后新增
+<Dropdown menu={{
+  items: availableItems.map(item => ({ label: item.name, key: `${item.id}` })),
+  onClick: ({ key }) => {
+    const v = [...(props.value ?? [])];
+    v.push({ id: key, /* 初始值 */ });
+    props.onChange?.(v);
+    setEditableRowKeys([key]);             // 新增后立即进入编辑态
+  },
+}}>
+  <Button>添加<DownOutlined /></Button>
+</Dropdown>
+
+// 方式二：普通按钮新增
+<Button onClick={() => {
+  const newId = `temp_${Date.now()}`;
+  props.onChange?.([...(props.value ?? []), { id: newId }]);
+  setEditableRowKeys([newId]);             // 新增后立即进入编辑态
+}}>
+  新增
+</Button>
+```
+
+> **关键：** 新增后立刻调用 `setEditableRowKeys([newKey])` 让用户马上填写字段。
+
+### 8.6 只读模式处理
+
+```tsx
+// 只读时：操作列不渲染、新增按钮隐藏、editable 不配置
+<EditableProTable<RowType>
+  columns={columns}                         // columns 中已按 readonly 过滤操作列
+  value={props.value}
+  {...(!props.readonly && {
+    editable: { editableKeys, onChange: setEditableRowKeys, onSave, actionRender },
+  })}
+/>
+```
+
+### 8.7 关键规范总结
+
+| 规范 | 说明 |
+|------|------|
+| `controlled` | 必须开启受控模式，数据由 `value/onChange` 驱动 |
+| `type: 'single'` | 推荐单行编辑，避免多行同时编辑的混乱 |
+| `actionRender` | 用 `Space` + `Divider` 包裹 `defaultDom.save/cancel`，与全局操作列风格统一 |
+| `recordCreatorProps={false}` | 通常禁用内置新增，改用自定义按钮/Dropdown |
+| 新增后 `setEditableRowKeys` | 新增行立即进入编辑态 |
+| 去重过滤 | 自定义新增时过滤已有项，防止重复 |
+| 操作列条件渲染 | `readonly` 时不渲染操作列 |
+
 ---
 
-## 二十八、树形数据结构处理
+## 九、权限系统（Auth）
 
-### formatTreeData - 扁平数组转树
+### 9.1 三层权限架构
 
-```ts
-import { formatTreeData } from '@/util';
+| 层级 | 机制 | 用途 |
+|------|------|------|
+| **路由级** | `definePageConfig({ auth: [...] })` | 整个页面权限门控 |
+| **按钮级** | `<Auth authKey="...">` 组件 | 条件渲染 UI 元素 |
+| **编程式** | `checkAuth("...")` 函数 | 基于权限分支逻辑 |
 
-// 将扁平列表转换为 Ant Design Tree 需要的树结构
-const treeData = formatTreeData(allList, parentList, 'parentID');
-// allList: 所有节点
-// parentList: 顶级节点（可选，不传则自动识别）
-// 'parentID': 父节点字段名（可选，默认 'parentID'）
+### 9.2 Auth 组件用法
+
+```tsx
+import Auth, { checkAuth } from '@/components/auth';
+
+// 按钮级权限
+<Auth authKey="createXxx">
+  <Button>新建</Button>
+</Auth>
+
+// 多 Key（AND 逻辑，默认）
+<Auth authKey={['permA', 'permB']} keyAndOr="and">
+  <Button>操作</Button>
+</Auth>
+
+// 多 Key（OR 逻辑）
+<Auth authKey={['permA', 'permB']} keyAndOr="or">
+  <Button>操作</Button>
+</Auth>
+
+// 带 fallback
+<Auth authKey="updateXxx" fallback={<span>无权限</span>}>
+  <Button>编辑</Button>
+</Auth>
+
+// 编程式检查
+const canMove = checkAuth('moveXxx');
 ```
 
-### loopTreeData - 遍历树
+### 9.3 Auth Key 获取规则
 
-```ts
-import { loopTreeData } from '@/util';
+Auth Key **不是固定的命名模式**，而是分两种来源：
 
-// 遍历树找到目标节点并修改
-loopTreeData(treeData, targetId, (node) => {
-  node.name = newName;
-});
+#### 来源一：GQL 真实接口名（优先）
+
+当后端 GraphQL 接口有独立的操作 mutation 时，Auth Key 直接对应 mutation 名称：
+
+| GQL Mutation | Auth Key | 说明 |
+|---|---|---|
+| `createCurrency` | `createCurrency` | 新建接口 |
+| `updateCurrency` | `updateCurrency` | 更新接口 |
+| `deleteCurrency` | `deleteCurrency` | 删除接口 |
+| `moveCategory` | `moveCategory` | 移动接口 |
+
+#### 来源二：自定义前端权限 Key
+
+当某个操作**没有独立的 GQL mutation**（如"启用/禁用"复用 update 接口、"导出"无后端接口、"审核"在同一个 mutation 中处理）时，由前端自定义权限 Key：
+
+| 场景 | 自定义 Key | 说明 |
+|---|---|---|
+| 启用/禁用（复用 update） | `toggleXxxState` 或 `updateXxxState` | 无独立 mutation |
+| 导出功能 | `exportXxx` | 纯前端操作 |
+| 审核操作 | `approveXxx` / `rejectXxx` | 合并在 update 中 |
+| 批量操作 | `batchDeleteXxx` / `batchUpdateXxx` | 可能无独立 mutation |
+
+**格式：** camelCase，动词 + 实体名（首字母大写）。
+
+**判断规则：**
+1. 先看 GQL schema 中是否有对应的独立 mutation → 有则直接用 mutation 名
+2. 无独立 mutation 时 → 自定义 Key，并在后端权限系统中同步注册
+
+### 9.4 权限初始化流程
+
+```
+App 启动 → defineAuthConfig()
+  ├── 开发环境：getMenuAppActions() → 读取 menu.json 授予所有路由权限
+  └── 生产环境：userPermissions(APP_CODE, headers) → 服务端返回用户权限列表
+      → 合并到 initialAuth（Record<string, boolean>）
 ```
 
-### saveTreeData / delTreeData - 树形 CRUD
+### 9.5 开发环境自动全权限
 
-```ts
-import { saveTreeData, delTreeData } from '@/util';
-
-// 插入或更新节点
-setTreeData(saveTreeData(treeData, newNode));
-
-// 删除节点
-setTreeData(delTreeData(treeData, nodeId));
-```
-
-### getTreeDropData - 拖拽排序
-
-```ts
-import { getTreeDropData } from '@/util';
-
-const onDrop = (info: any) => {
-  const result = getTreeDropData(treeData, {
-    dragNode: info.dragNode,
-    dropNode: info.node,
-    dropPosition: info.dropPosition,
+```tsx
+// src/util/index.ts — getMenuAppActions()
+if (process.env.NODE_ENV === 'development') {
+  menuJsonList?.forEach((item) => {
+    if (item.path) initialAuth[item.path] = true;
+    // 递归处理子菜单
   });
-  // result: { sourceId, targetId, action, newTreeData }
-  setTreeData(result.newTreeData);
-  // 调用 API 保存排序
-  mutUpdateOrder(result.sourceId, { afterId: result.targetId });
+}
+
+// src/components/auth/index.tsx — checkAuth()
+export const checkAuth = (authKey: string) => {
+  return NODE_ENV === 'development' || auth[authKey];
 };
 ```
 
+### 9.6 权限在组件中的使用位置
+
+| 位置 | 示例 |
+|------|------|
+| 工具栏新建按钮 | `<Auth authKey="createXxx"><Button>新建</Button></Auth>` |
+| 操作列编辑按钮 | `<Auth authKey="updateXxx"><Typography.Link>编辑</Typography.Link></Auth>` |
+| 操作列删除按钮 | `<Auth authKey="deleteXxx"><Typography.Link>删除</Typography.Link></Auth>` |
+| 操作列启用/禁用 | `<Auth authKey="updateXxx"><Typography.Link>启用/禁用</Typography.Link></Auth>` |
+| 详情页编辑按钮 | `<Auth authKey="updateXxx"><Button>编辑</Button></Auth>` |
+| 树形拖拽开关 | `const canMove = checkAuth('moveXxx');` |
+
 ---
 
-## 二十九、开发检查清单
+## 十、只读表单处理规范
 
-新建页面时逐项确认：
+### 10.1 核心原则
 
-- [ ] 文件放在 `src/pages/模块/页面名/index.tsx`
-- [ ] 三段式结构：业务组件 + 默认导出 + pageConfig
-- [ ] `className="qeelyn-page-container"` 和 `<KeepAlive clearAlive>`
-- [ ] `routeBreadcrumb()` 面包屑
-- [ ] ProTable 使用 `search={{ className: 'qeelyn-pro-table-search' }}`
-- [ ] 操作按钮用 `<Auth authKey="...">` 包裹
-- [ ] 枚举映射在 `services/` 中导出（带 `text` 和 `tagColor`）
-- [ ] GraphQL 函数遵循 `getXxx` / `mutXxx` 命名
-- [ ] 服务函数添加 JSDoc 注释
-- [ ] 运行 `pnpm gqlgen` 生成类型
-- [ ] 新增模块时更新 `script/gqlgen.ts` 的 `documents` 配置
-- [ ] UI 文案使用 `t('key')` 国际化
-- [ ] 删除/危险操作用 `Modal.confirm` + Promise 模式
-- [ ] **更新接口必须用 `updateFormat(values, info)` 处理**，不直接传整个表单对象
-- [ ] `saveDataSource` / `delDataSource` 本地更新（不重新请求列表）
-- [ ] `onMousedown` 处理行点击与文本选中冲突
-- [ ] 字典下拉用 `getDictionaryValueList`（按项目实际字典服务替换）
-- [ ] 非标准 Query/Mutation 按 Schema 定义参数
+1. **不使用 `disabled`** — disabled 导致输入框变灰、无法选中复制文本
+2. **使用 `readOnly`** — 保留外观、允许文本选中
+3. **`requiredMark={!readonly}`** — 只读模式隐藏必填星号
+4. **`submitter={readonly ? false : {...}}`** — 只读模式隐藏提交按钮
+5. **`placeholder={readonly ? '' : '请输入...'}`** — 只读模式清空提示文本
+
+### 10.2 三类处理方式
+
+| 组件类型 | 是否支持 readOnly | 处理方式 |
+|---------|-------------------|---------|
+| `ProFormText` | ✅ | `fieldProps={{ readOnly: readonly }}` |
+| `ProFormDigit` | ✅ | `fieldProps={{ readOnly: readonly }}` |
+| `ProFormTextArea` | ✅ | `fieldProps={{ readOnly: readonly }}` |
+| `InputNumber` | ✅ | `readOnly={readonly}` |
+| `ProFormSelect` | ❌ | 条件渲染：`<Form.Item>` + `<Input readOnly>` 展示 label |
+| `ProFormDatePicker` | ❌ | 条件渲染：`<Form.Item>` + `<Input readOnly>` 展示格式化日期 |
+| `TreeSelect` | ❌ | 条件渲染：递归查找 title |
+| `ProFormRadio.Group` | ❌ | 条件渲染或 disabled Radio.Group |
+| `Switch` / `Checkbox` | ❌ | 条件渲染：`<Form.Item>` + `<Input readOnly>` 或 disabled 组件 |
+
+### 10.3 模式一：支持 readOnly 的组件
+
+```tsx
+<ProFormText
+  name="name"
+  label="名称"
+  placeholder={props.readonly ? '' : '请输入名称'}
+  fieldProps={{ readOnly: props.readonly }}
+/>
+
+<ProFormDigit
+  name="multiplier"
+  label="乘数"
+  placeholder={props.readonly ? '' : '请输入乘数'}
+  fieldProps={{ precision: 0, readOnly: props.readonly }}
+/>
+```
+
+### 10.4 模式二：Select 单选只读
+
+```tsx
+{props.readonly ? (
+  <Form.Item label="状态">
+    <Input value={EnumXxxState[info?.state ?? 0]?.text ?? ''} readOnly />
+  </Form.Item>
+) : (
+  <ProFormSelect label="状态" name="state" options={...} />
+)}
+```
+
+### 10.5 模式二：Select 多选只读（Tag 展示）
+
+```tsx
+{props.readonly ? (
+  <Form.Item label="业务类型">
+    <div className="ql-readonly-tags">
+      {info?.bizTypes?.split(',').filter(Boolean)
+        .map(v => bizTypes.find(b => `+${b.id}` === v)?.bizName ?? v)
+        .map((name, index) => (
+          <Tag key={index} style={{ margin: 0 }}>{name}</Tag>
+        ))}
+    </div>
+  </Form.Item>
+) : (
+  <ProFormSelect name="bizTypes" label="业务类型" mode="multiple" options={...} />
+)}
+```
+
+> **`ql-readonly-tags`** 全局样式：`min-height: 32px`、`border: 1px solid #d9d9d9`、`border-radius: 6px`、`display: flex; flex-wrap: wrap; gap: 4px`，hover 时边框变 `#1677ff`。
+
+### 10.6 模式二：DatePicker 只读
+
+```tsx
+{props.readonly ? (
+  <Form.Item label="发布日期">
+    <Input value={info?.pubTime ? dayjs(info.pubTime).utc().format('YYYY-MM-DD') : ''} readOnly />
+  </Form.Item>
+) : (
+  <DatePicker format="YYYY-MM-DD" style={{ width: '100%' }} />
+)}
+```
+
+**规则：** 没值用 `''` 不用 `'-'`；格式必须与 DatePicker 的 `format` prop 一致。
+
+### 10.7 模式三：Checkbox / Radio 只读
+
+```tsx
+// Checkbox 只读
+{props.readonly ? (
+  <Form.Item name="triggerAlarm">
+    <Checkbox checked={info?.triggerAlarm ?? undefined}>预警性规则</Checkbox>
+  </Form.Item>
+) : (
+  <Form.Item name="triggerAlarm" valuePropName="checked">
+    <Checkbox>预警性规则</Checkbox>
+  </Form.Item>
+)}
+```
+
+> 此模式使用 `disabled` 而非 `readOnly`，因为 Checkbox/Radio 原生不支持 `readOnly`。
+
+---
+
+## 十一、枚举与状态 Tag 规范
+
+### 11.1 枚举定义位置
+
+`src/services/{module}/enums.ts`，按业务模块分文件。
+
+### 11.2 枚举命名规则
+
+| 类型 | 命名模式 | 示例 |
+|------|---------|------|
+| GraphQL 字符串枚举 | `Enum` + 实体名 + GraphQL枚举名 | `EnumBizTypeState` |
+| Int 型状态枚举 | `Enum` + 实体名 + `State` | `EnumExchangeState` |
+| 审核状态枚举 | `Enum` + 实体名 + `ApproveStatus` | `EnumProductApproveStatus` |
+| Y/N 字符串枚举 | `Enum` + 实体名 + `IsEnabled` | `EnumRecordIsEnabled` |
+
+### 11.3 枚举结构
+
+```tsx
+// 统一结构：Record<KeyType, { ...自定义字段 }>
+// KeyType 根据实际数据类型决定（number / string / enum）
+// 字段按需扩展，text 和 tagColor 是最常用的两个，可追加 description、icon、color 等任意字段
+export const EnumXxxState: Record<number, { text: string; tagColor: string }> = {
+  0: { text: '禁用', tagColor: '#ff3030' },
+  1: { text: '启用', tagColor: '#30c880' },
+};
+```
+
+### 11.4 颜色体系
+
+| 语义 | 色值 | 适用场景 |
+|------|------|---------|
+| **启用 / 成功 / 通过** | `#30c880` | 启用状态、审核通过 |
+| **禁用 / 失败 / 拒绝** | `#ff3030` | 禁用状态、禁止交易 |
+| **初始 / 草稿 / 中性** | `#dcdee1` | 初始状态、未知状态 |
+| **待审核 / 警告** | `#ffcc5f` | 待审核、停牌 |
+| **信息 / 进行中** | `#00C8FF` | 进行中状态 |
+| **强调 / 主要** | `#3080FF` | 高优先级、特殊标记 |
+
+### 11.5 安全渲染
+
+```tsx
+render(_, record) {
+  const stateVal = record.state ?? 0;        // 空值兜底
+  const enumItem = EnumXxxState[stateVal];
+  return <Tag color={enumItem?.tagColor}>{enumItem?.text ?? '-'}</Tag>;
+},
+```
+
+**规则：** `?.` 安全访问 + `?? '-'` 文本兜底，防止枚举值缺失导致白屏。
+
+---
+
+## 十二、共享工具函数与 Hooks
+
+### 12.1 Hooks
+
+| Hook | 来源 | 用途 |
+|------|------|------|
+| `routeBreadcrumb()` | `@/util/hook` | 根据路由自动生成面包屑名称数组 |
+| `useResizableProTable(config, deps)` | `@/util/hook` | 为 ProTable 增加列宽拖拽能力 |
+| `useLeavePrompt()` | `@knockout-js/layout` | 返回 `[checkLeave, setLeavePromptWhen]`，表单未保存离开拦截 |
+
+### 12.2 工具函数
+
+| 函数 | 来源 | 用途 |
+|------|------|------|
+| `onMousedown({ target, click })` | `@/util` | 区分单击/双击/文本选择的鼠标事件 |
+| `saveDataSource(dataSource, item, options?)` | `@/util` | 新增/更新数据源中的记录 |
+| `delDataSource(dataSource, id)` | `@/util` | 从数据源中删除记录 |
+| `updateFormat<T>(newValues, oldValues)` | `@/util` | 增量 diff，生成 `clearXxx: true` |
+| `formatTreeData(items, rootId?, options?)` | `@/util` | 扁平数组 → 树结构 |
+| `delTreeData(tree, key, options?)` | `@/util` | 从树中删除节点 |
+| `getTreeDropData(treeData, info)` | `@/util` | 计算拖拽后的新树结构 |
+| `saveTreeData(treeList, updateData, options?)` | `@/util` | 新增或更新树结构数据 |
+| `loopTreeData(data, key, callback)` | `@/util` | 循环遍历树结构，按 key 查找节点并执行回调 |
+| `exportExcel(filename, sheetData)` | `@/util/excel` | 导出 Excel |
+
+### 12.3 updateFormat 使用规范
+
+```tsx
+// 编辑时，必须使用 updateFormat 做增量 diff
+// 只发送实际变更的字段，清除的字段自动生成 clearXxx: true
+const result = await mutUpdateXxx(id, updateFormat<UpdateXxxInput>({
+  name: values.name,
+  description: values.description,
+}, info || {}));
+
+// 示例输出：{ name: '新名称', clearDescription: true }
+```
+
+---
+
+## 十三、数据层约定（GraphQL + Relay）
+
+### 13.1 服务函数命名规范
+
+| 操作 | 函数名 | 返回值 |
+|------|--------|--------|
+| 分页列表 | `getXxxList({ current, pageSize, where, orderBy? })` | Relay Connection |
+| 单条查询 | `getXxxInfo(id)` | 实体对象 |
+| 新建 | `mutCreateXxx(input)` | 新建后的实体 |
+| 更新 | `mutUpdateXxx(id, updateInput)` | 更新后的实体 |
+| 删除 | `mutDeleteXxx(id)` | boolean |
+| 字典查询 | `getDictionaryValuesByTypeCodes(codes)` | DictionaryValue[] |
+
+### 13.2 Relay Connection 转换
+
+```tsx
+const result = await getXxxList({ current, pageSize, where });
+const table = { data: [] as EntityType[], success: true, total: 0 };
+table.total = result?.totalCount ?? 0;
+result?.edges?.forEach(edge => {
+  if (edge?.node) table.data.push(edge.node);
+});
+return table;
+```
+
+### 13.3 Service 层标准导入与辅助工具
+
+```tsx
+import { gql } from '@/generated/{module}';
+import { gid } from '@knockout-js/api';
+import { KoHeaders, mutation, paging, query } from '@knockout-js/ice-urql/request';
+```
+
+| 工具 | 用途 |
+|------|------|
+| `gid('EntityName', id)` | 构建 GraphQL 全局 ID（如 `Bank:xxx`） |
+| `KoHeaders.noCache` | 查询时禁用缓存，确保获取最新数据 |
+| `batchInitCacheUser(userIds)` | 列表请求后批量缓存用户信息（创建人/更新人显示名） |
+
+**列表请求后缓存用户信息的标准写法：**
+
+```tsx
+await batchInitCacheUser(
+  table.data.filter(item => Number(item.createdBy) > 0).map(item => `${item.createdBy}`)
+);
+```
+
+
+### 13.4 字典数据加载
+
+```tsx
+const typeCodes = ['TypeA', 'TypeB'];
+const dictRes = await getDictionaryValuesByTypeCodes(typeCodes);
+const dictionary: Record<string, DictionaryValue[]> = {};
+typeCodes.forEach(code => { dictionary[code] = []; });
+dictRes.forEach(item => {
+  if (item?.typeCode) dictionary[item.typeCode].push(item);
+});
+for (const key in dictionary) {
+  dictionary[key] = dictionary[key].sort((a, b) =>
+    (a.listOrder ?? 0) - (b.listOrder ?? 0)
+  );
+}
+```
+
+---
+
+## 十四、启用/禁用切换操作模板
+
+```tsx
+<Auth authKey="updateXxx">
+  <Typography.Link onClick={() => {
+    const isEnabled = record.state === 1;
+    Modal.confirm({
+      title: isEnabled ? '禁用' : '启用',
+      content: `是否${isEnabled ? '禁用' : '启用'}：${record.name}？`,
+      onOk: async () => {
+        return new Promise(async (resolve, reject) => {
+          const result = await mutUpdateXxx(record.id, {
+            state: isEnabled ? 0 : 1,
+          });
+          if (result) {
+            message.success('执行成功');
+            setDataSource(prev => prev.map(item =>
+              item.id === record.id ? { ...item, state: result.state } : item
+            ));
+            resolve(true);
+          } else { reject(); }
+        });
+      },
+    });
+  }}>
+    {record.state === 1 ? '禁用' : '启用'}
+  </Typography.Link>
+</Auth>
+```
+
+---
+
+## 十五、CSS 类名约定
+
+| 类名 | 用途 |
+|------|------|
+| `ql-page-container` | PageContainer 标准样式 |
+| `ql-pro-table-search` | ProTable 搜索区域样式 |
+| `ql-divider-gray` | 操作列灰色分割线（`#bcbec3`） |
+| `ql-detail-container` | 编辑页容器 |
+| `ql-detail-subTitle` | 详情页信息栏 |
+| `ql-detail-subTitle-end-tabs` | 信息栏 + Tab 模式 |
+| `ql-detail-tabs` | 详情页 Tab 导航 |
+| `ql-readonly-tags` | 只读多选标签展示 |
+| `ql-detail-title` | 编辑页标题（18px） |
+| `ql-detail-tabs-proCard` | ProCard Tab 页签标题样式（标题 15px，font-weight: 600，header padding 重置） |
+| `ql-detail-tabs-proTable-action` | Tab 内 ProTable 操作栏（去除顶部 padding，底部 10px） |
+| `ql-tree-form-title` | 树形页表单区域标题（15px，font-weight: 600，height/line-height: 32px，底部 16px） |
+| `ka-content` | 卡片型页面内容区域（白色背景、圆角、阴影） |
+| `ql-table-small-toolbar` | 小型工具栏的 ProTable（去除顶部 padding） |
+| `ql-page-tabs` | 页面内 Tab 卡片的 ProCard body padding 调整 |
+
+---
+
+## 十六、尺寸基线
+
+| 项目 | 值 |
+|------|-----|
+| ProTable 吸顶偏移 | `offsetHeader: 56` |
+| Splitter 高度 | `calc(100vh - 140px)` ~ `calc(100vh - 200px)`（按页面调整） |
+| Splitter 左面板宽度 | `300px` ~ `340px`（min: 280, max: 500） |
+| Modal 宽度 | `500 / 600 / 800` |
+| Row gutter（编辑页） | `16` ~ `24`（弹窗 16，复杂详情页 24） |
+| Row gutter（弹窗） | `16` |
+| Row gutter（复杂表单） | `20` |
+| 表单区 padding | `24px 32px` |
+| 页面边框色 | `#eeeef1` |
+| 标签文字色 | `#686a8f` |
+
+---
+
+## 十七、开发检查清单
+
+### 新建 Type A 列表页
+
+- [ ] 创建 `src/pages/{module}/xxx/index.tsx`：三段式导出
+- [ ] 创建 `src/pages/{module}/xxx/components/editor.tsx`：Modal + ProForm 编辑器
+- [ ] 在 `services/{module}/` 中定义 CRUD 函数
+- [ ] 在 `services/{module}/enums.ts` 中定义枚举
+- [ ] 配置 `menu.json` 菜单路径
+- [ ] 定义权限 Key（createXxx / updateXxx / deleteXxx）
+
+### 关键规则（必须遵守）
+
+1. **所有编辑操作必须使用 `updateFormat`** 做增量 diff
+2. **所有列表必须使用 `useResizableProTable`** 支持列宽拖拽
+3. **所有表单必须接入 `useLeavePrompt`** 防止误关
+4. **所有权限操作必须包裹 `<Auth>` 组件**
+5. **ID 列：** `order: -999` + `columnsState: { show: false }` + 可复制
+6. **操作列：** `fixed: 'right'` + `hideInSetting: true` + `align: 'center'`
+7. **操作按钮分割线：** `<Space split={<Divider type="vertical" className="ql-divider-gray" />} size={0}>`
+8. **删除操作：** `Modal.confirm` + Promise 模式
+9. **ProForm `onFinish`：** 必须返回 `false` 阻止自动关闭
+10. **只读表单：** 用 `readOnly` 不用 `disabled`，清空 `placeholder`
+11. **状态列：** `valueEnum` + `Tag` 渲染，安全访问 `?.` + 兜底 `?? '-'`
+12. **数值列：** `align: 'right'`
+13. **搜索表单：** `className: 'ql-pro-table-search'`
+14. **行选择：** `type: 'radio'` + `onMousedown` 区分点击与文本选择
