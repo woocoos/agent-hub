@@ -134,8 +134,67 @@ func main() {
 
 ## 应用初始化模式
 
-**规则:** 使用 `koapp.New()` 进行应用引导,其自动读取运行目录的`etc`目录读取配置文件, 根据配置文件自动初始化组件
+**规则:** 使用 `koapp.New()` 进行应用引导,其自动读取配置文件并初始化组件。
 **规则:** 初始化工作避免放在`Start`方法中。
+
+### 配置文件查找规则
+
+`koapp.New()` 内部通过 woocoo 框架的 `conf` 包定位配置文件,解析顺序:
+
+1. **默认路径:** `<可执行文件所在目录>/etc/app.yaml`
+   - 基于 `filepath.Dir(os.Args[0])` 计算,即编译产物(二进制文件)所在目录
+2. **环境变量覆盖:** 设置 `WOOCOO_BASEDIR` 可覆盖默认的基础目录
+3. **Option 覆盖:** 使用 `koapp.New(woocoo.WithConf(conf.WithBaseDir("/path")))` 指定
+
+### etc 目录放置位置
+
+**规则:** `etc` 目录放在 `cmd/<服务名>/etc/` 下,与 `main.go` 同级。
+
+例如管理端服务放在 `cmd/admin/etc/`,认证服务放在 `cmd/auth/etc/`。
+
+项目目录结构:
+
+```
+project-root/
+├── cmd/
+│   ├── admin/
+│   │   ├── main.go
+│   │   └── etc/              ← 管理端配置目录
+│   │       ├── app.yaml      ← 主配置文件(必须)
+│   │       └── rbac_model.conf
+│   └── auth/
+│       ├── main.go
+│       └── etc/              ← 认证服务配置目录
+│           └── app.yaml
+├── internal/
+├── go.mod
+└── go.sum
+```
+
+**编译与运行:**
+
+```bash
+# 编译: 二进制输出到 cmd/admin/ 目录,etc 与之同级
+go build -o cmd/admin/admin ./cmd/admin
+# 此时 basedir = cmd/admin/, 配置文件 = cmd/admin/etc/app.yaml ✓
+
+# 运行: 从项目根目录执行,二进制在 cmd/admin/ 下
+./cmd/admin/admin
+```
+
+**开发阶段注意事项:**
+
+`go run` 会将编译产物放在临时目录,导致找不到 `etc`。开发时应使用以下方式之一:
+
+```bash
+# 方式1: 设置 WOOCOO_BASEDIR 指向 cmd/<服务名> 目录
+WOOCOO_BASEDIR=./cmd/admin go run ./cmd/admin
+
+# 方式2: 先编译再运行
+go build -o cmd/admin/admin ./cmd/admin && ./cmd/admin/admin
+```
+
+**反模式:** 不要将 `etc` 放在项目根目录,因为 `go build` 的输出目录是 `cmd/<服务名>/`,不是项目根目录。
 
 ```go
 // 正确: 使用 koapp.New()
@@ -153,10 +212,10 @@ func main() {
 }
 ```
 
-**配置结构:**
+### 配置结构
 
 ```yaml
-# app.yaml
+# cmd/<服务名>/etc/app.yaml
 snowflake:
   node: 1        # ID 生成的唯一节点 ID
 
