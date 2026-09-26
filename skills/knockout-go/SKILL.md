@@ -1,6 +1,6 @@
 ---
 name: knockout-go
-description: 基于 woocoo knockout 应用架构的 Go 开发实践。用于开发基于 knockout 架构的服务、处理多租户、Ent 缓存、Casbin 权限控制或构建 woocoo 应用。
+description: 基于 woocoo knockout 应用架构的 Go 开发实践。用于开发基于 knockout 架构的服务、处理多租户、Ent ORM (代码生成/Schema/Mixin/查询/迁移/缓存)、gqlgen GraphQL (entgql 集成/Resolver/Server)、Casbin 权限控制或构建 woocoo 应用。
 source: https://github.com/woocoos/knockout-go
 license: MIT
 ---
@@ -124,6 +124,738 @@ func main() {
     // 使用驱动创建 Ent Client
     portalClient := ent.NewClient(ent.Driver(drivers["portal"]))
     
+    app.Run()
+}
+```
+
+## Ent 代码生成
+
+**规则:** 使用 `entc.Generate` 配合 knockout-go 提供的 `entx` 和 `entcachegen` 扩展进行代码生成。
+
+### 生成入口 (entc.go)
+
+代码生成文件放在 `codegen/entgen/entc.go`, 使用 `//go:build ignore` 标签, 通过 `go run codegen/entgen/entc.go` 执行:
+
+```go
+//go:build ignore
+
+package main
+
+import (
+    "log"
+    "os"
+
+    "entgo.io/contrib/entgql"
+    "entgo.io/ent/entc"
+    "entgo.io/ent/entc/gen"
+    entcachegen "github.com/woocoos/entcache/gen"
+    "github.com/woocoos/knockout-go/codegen/entx"
+)
+
+func main() {
+    ex, err := entgql.NewExtension(
+        entx.WithGqlWithTemplates(),
+        entgql.WithSchemaGenerator(),
+        entgql.WithWhereInputs(true),
+        entgql.WithConfigPath("codegen/gqlgen/gqlgen.yaml"),
+        entgql.WithSchemaPath("api/graphql/ent.graphql"),
+        entgql.WithSchemaHook(entx.ChangeRelayNodeType(), entx.DecimalScalar()),
+    )
+    if err != nil {
+        log.Fatalf("creating entgql extension: %v", err)
+    }
+    os.MkdirAll("./api/graphql", os.ModePerm)
+    opts := []entc.Option{
+        entc.Extensions(ex, entx.DecimalExtension{}),
+        entx.GlobalID(),
+        entx.SimplePagination(),
+        entcachegen.QueryCache(),
+    }
+    err = entc.Generate("./codegen/entgen/schema", &gen.Config{
+        Package: "your module path/ent",
+        Features: []gen.Feature{
+            gen.FeatureVersionedMigration,
+            gen.FeatureUpsert,
+            gen.FeatureIntercept,
+            gen.FeatureSchemaConfig,
+        },
+        Target: "./ent",
+    }, opts...)
+    if err != nil {
+        log.Fatalf("running ent codegen: %v", err)
+    }
+}
+```
+
+### knockout-go 扩展说明
+
+| 扩展 | 来源 | 功能 |
+|------|------|------|
+| `entx.GlobalID()` | knockout-go/codegen/entx | 启用全局 ID, Relay Node 兼容 |
+| `entx.SimplePagination()` | knockout-go/codegen/entx | 简化 Relay 分页实现 |
+| `entx.DecimalExtension{}` | knockout-go/codegen/entx | Decimal 标量类型的代码生成支持 |
+| `entx.WithGqlWithTemplates()` | knockout-go/codegen/entx | 使用自定义 GraphQL 模板 |
+| `entx.ChangeRelayNodeType()` | knockout-go/codegen/entx | 调整 Relay Node 类型映射 |
+| `entx.DecimalScalar()` | knockout-go/codegen/entx | Decimal 类型的 GraphQL 标量处理 |
+| `entcachegen.QueryCache()` | woocoos/entcache/gen | 生成 entcache 查询缓存代码, 织入生成的查询方法中 |
+
+### 必需的 Feature 标志
+
+| Feature | 用途 |
+|---------|------|
+| `gen.FeatureVersionedMigration` | 版本化迁移, 支持增量迁移文件 |
+| `gen.FeatureUpsert` | 启用 Upsert (INSERT ON CONFLICT) 操作 |
+| `gen.FeatureIntercept` | 启用拦截器, 用于 TenantMixin 的租户隐私过滤 |
+| `gen.FeatureSchemaConfig` | 启用运行时 schema 配置, 支持 `ent.AlternateSchema` 跨库查询 |
+
+### Schema 目录结构
+
+Schema 文件放在 `codegen/entgen/schema/` 目录下(非传统的 `ent/schema/`), 生成目标为 `./ent`:
+
+```
+project-root/
+├── codegen/
+│   └── entgen/
+│       ├── entc.go              ← 代码生成入口
+│       └── schema/              ← Schema 定义目录
+│           ├── order.go
+│           ├── util.go          ← 共享类型定义
+│           └── ...
+├── ent/                         ← 生成代码输出目录
+│   ├── client.go
+│   ├── runtime.go
+│   ├── hook/hook.go
+│   ├── intercept/intercept.go
+│   ├── migrate/
+│   ├── enttest/
+│   └── ...
+└── ...
+```
+
+## Ent Schema 定义
+
+**规则:** 使用 knockout-go 提供的 Mixin 组合实现通用的 ID 策略、审计字段、多租户隔离和软删除。
+
+### Mixin 体系
+
+knockout-go 的 `ent/schemax` 包提供以下 Mixin:
+
+| Mixin | 功能 | 泛型参数 |
+|-------|------|----------|
+| `schemax.SnowFlakeID{}` | 雪花算法 ID, 替代自增 ID | 无 |
+| `schemax.AuditMixin{}` | 审计字段: created_by, created_at, updated_by, updated_at | `Precision` 可选, 毫秒精度 |
+| `schemax.NewTenantMixin[Q, C]()` | 多租户隐私拦截, 自动注入租户过滤条件 | `Q`: 拦截器类型, `C`: Client 指针类型 |
+| `schemax.NewSoftDeleteMixin[Q, C]()` | 软删除, 删除操作自动转为更新 deleted_at | `Q`: 拦截器类型, `C`: Client 指针类型 |
+
+### Mixin 组合示例
+
+```go
+import (
+    "github.com/woocoos/knockout-go/ent/schemax"
+    gen "your module path/ent"
+    "your module path/ent/intercept"
+    "your module path/version"
+)
+
+// 完整 Mixin 组合 (雪花ID + 审计 + 多租户 + 软删除)
+func (Order) Mixin() []ent.Mixin {
+    return []ent.Mixin{
+        schemax.SnowFlakeID{},
+        schemax.AuditMixin{Precision: 3},
+        schemax.NewTenantMixin[intercept.Query, *gen.Client](
+            version.AppCode,
+            intercept.NewQuery,
+            schemax.WithTenantMixinDomainStorageKey[intercept.Query, *gen.Client]("domain_id"),
+        ),
+        schemax.NewSoftDeleteMixin[intercept.Query, *gen.Client](intercept.NewQuery),
+    }
+}
+
+// 简单 Mixin 组合 (审计 + 多租户, 使用默认存储键 tenant_id)
+func (Project) Mixin() []ent.Mixin {
+    return []ent.Mixin{
+        schemax.AuditMixin{},
+        schemax.NewTenantMixin[intercept.Query, *gen.Client](
+            version.AppCode,
+            intercept.NewQuery,
+            schemax.WithTenantMixinStorageKey[intercept.Query, *gen.Client]("org_id"),
+        ),
+    }
+}
+```
+
+**TenantMixin 泛型参数说明:**
+- 第一个泛型参数固定为 `intercept.Query` (由 `FeatureIntercept` 生成)
+- 第二个泛型参数为 `*gen.Client` (Ent 生成的 Client 指针类型)
+- `version.AppCode` 为应用标识, 用于缓存命名空间
+- `WithTenantMixinStorageKey` 指定租户字段的存储列名, 默认为 `tenant_id`
+- `WithTenantMixinDomainStorageKey` 指定域级别的租户字段存储列名
+
+### Schema Annotation
+
+```go
+func (Order) Annotations() []schema.Annotation {
+    return []schema.Annotation{
+        // 指定数据库表名
+        entsql.Annotation{Table: "order"},
+        // 声明租户字段名, 用于 entcache 缓存隔离
+        schemax.TenantField("tenant_id"),
+        // GraphQL: 生成查询字段
+        entgql.QueryField(),
+        // GraphQL: 启用 Relay 连接分页
+        entgql.RelayConnection(),
+        // GraphQL: 暴露创建和更新 mutation
+        entgql.Mutations(entgql.MutationCreate(), entgql.MutationUpdate()),
+    }
+}
+```
+
+### 字段类型
+
+#### 自定义 Decimal 字段
+
+使用 `fieldx.Decimal()` 替代 Ent 原生的 `field.Float()`, 提供精确的数值计算:
+
+```go
+import "github.com/woocoos/knockout-go/ent/schemax/fieldx"
+
+fieldx.Decimal("price").Optional().Precision(16, 4).Default(0).Comment("价格")
+fieldx.Decimal("amount").Precision(16, 2).Default(0).Optional().Comment("金额")
+```
+
+#### 枚举字段绑定自定义 Go 类型
+
+```go
+// dicSchemaType 定义枚举的数据库存储类型
+var dicSchemaType = map[string]string{
+    dialect.MySQL:    "VARCHAR(10)",
+    dialect.Postgres: "VARCHAR(10)",
+    dialect.SQLite:   "TEXT",
+}
+
+field.Enum("side").GoType(types.Side("")).SchemaType(dicSchemaType).Comment("买卖方向")
+```
+
+#### 跨数据库时间类型
+
+```go
+var timeSchemaType = map[string]string{
+    dialect.MySQL:    "TIMESTAMP(3)",
+    dialect.Postgres: "TIMESTAMPTZ",
+    dialect.SQLite:   "DATETIME",
+}
+
+field.Time("transact_time").Default(time.Now).SchemaType(timeSchemaType)
+```
+
+#### Int 类型统一映射
+
+```go
+var IntSchemaType = map[string]string{
+    dialect.MySQL:    "INT",
+    dialect.Postgres: "INT",
+    dialect.SQLite:   "INTEGER",
+}
+
+field.Int("product_id").SchemaType(IntSchemaType).Annotations(entgql.Type("ID"))
+```
+
+### Schema Hooks
+
+在 Schema 中定义业务 Hook, 使用 `hook.On()` 限定操作类型:
+
+```go
+import (
+    "context"
+    "entgo.io/ent"
+    gen "your module path/ent"
+    "your module path/ent/hook"
+)
+
+func (Order) Hooks() []ent.Hook {
+    return []ent.Hook{
+        hook.On(func(next ent.Mutator) ent.Mutator {
+            return hook.OrderFunc(func(ctx context.Context, mu *gen.OrderMutation) (gen.Value, error) {
+                // 创建时自动推导 position_effect
+                ps, _ := mu.PositionEffect()
+                if d, ok := mu.Direction(); ok {
+                    if ps == "" {
+                        switch d {
+                        case types.DirectionOpen:
+                            mu.SetPositionEffect(types.PositionEffectOpen)
+                        case types.DirectionClose:
+                            mu.SetPositionEffect(types.PositionEffectClose)
+                        }
+                    }
+                }
+                return next.Mutate(ctx, mu)
+            })
+        }, ent.OpCreate),
+    }
+}
+```
+
+## Ent 客户端初始化
+
+**规则:** 通过 `koapp.BuildEntComponents()` 获取驱动后创建 Ent Client, 必须空白导入 `ent/runtime` 包注册 Hooks 和 Interceptors。
+
+### 基本初始化
+
+```go
+import (
+    "your module path/ent"
+    _ "your module path/ent/runtime"  // 必须: 注册 hooks/interceptors/validators
+    _ "github.com/go-sql-driver/mysql" // 数据库驱动
+)
+
+func main() {
+    app := koapp.New()
+    cnf := app.AppConfiguration()
+
+    ents := koapp.BuildEntComponents(cnf)
+    drv, ok := ents["oms"]
+    if !ok {
+        panic("no oms ent driver")
+    }
+    db := ent.NewClient(ent.Driver(drv))
+    if cnf.Development {
+        db = db.Debug()
+    }
+    defer db.Close()
+}
+```
+
+### AlternateSchema 跨库查询
+
+使用 `ent.AlternateSchema()` 将特定实体映射到不同的数据库 schema:
+
+```go
+db := ent.NewClient(ent.Driver(drv), ent.AlternateSchema(ent.SchemaConfig{
+    Project:     "deo_business",
+    ProjectIsda: "deo_business",
+}))
+```
+
+**前提:** 代码生成时必须启用 `gen.FeatureSchemaConfig`。配置中的 key 为 Schema 结构体名(如 `Project`), value 为目标数据库名。
+
+### 服务层注入
+
+通过 Option 模式将 Ent Client 注入到服务层:
+
+```go
+// 直接注入 Client
+func WithDbClient(client *ent.Client) DayEndOption {
+    return func(opts *DayEndOptions) {
+        opts.DB = client
+    }
+}
+
+// 注入为缓存层
+func WithCache(client *ent.Client) Option {
+    return func(o *Options) {
+        o.Cache = caching.NewCache(client)
+    }
+}
+
+// 注入到 GraphQL Resolver
+type ServerOption struct {
+    Db *ent.Client
+}
+```
+
+## Ent 查询模式
+
+### 基本查询
+
+```go
+// 条件查询
+ords, err := db.Order.Query().Where(
+    order.TradeDate(trdDate),
+    order.ProductID(int(req.ProductId)),
+    order.OrdStatusIn(types.UnclearOrdStatus()...),
+    order.IsSettled(false),
+).All(ctx)
+
+// 单条查询 + 预加载关联
+cond, err := db.OrderCondition.Query().
+    Where(ordercondition.IDEQ(req.ConditionID)).
+    WithOrder().
+    Only(ctx)
+```
+
+### 批量更新
+
+```go
+err := db.Order.Update().
+    SetIsSettled(true).
+    Where(
+        order.TradeDate(trdDate),
+        order.ProductID(int(req.ProductId)),
+    ).Exec(ctx)
+```
+
+### 原生 SQL 谓词
+
+```go
+dataList, err := db.OrderReport.Query().Where(func(s *sql.Selector) {
+    s.Where(sql.ExprP(
+        "order_id in (select id from `order` where account_id = ? and is_settled = 0)",
+        accountID,
+    ))
+}).All(ctx)
+```
+
+### 跳过租户隐私过滤
+
+使用 `schemax.SkipTenantPrivacy(ctx)` 在需要跨租户查询时跳过自动注入的租户条件:
+
+```go
+import "github.com/woocoos/knockout-go/ent/schemax"
+
+// 同时跳过租户隐私和缓存
+dataList, err := db.OrderReport.Query().Where(
+    // ...
+).All(schemax.SkipTenantPrivacy(entcache.Skip(ctx)))
+```
+
+## Ent 数据库迁移
+
+**规则:** 使用 `//go:build ignore` 标签的独立脚本执行迁移, 支持版本化迁移。
+
+### 迁移脚本
+
+```go
+//go:build ignore
+
+package main
+
+import (
+    "context"
+    "flag"
+    "log"
+
+    "your module path/ent"
+    "your module path/ent/migrate"
+    "github.com/woocoos/knockout-go/codegen/entx"
+    _ "github.com/go-sql-driver/mysql"
+)
+
+var (
+    dsn  = flag.String("dsn", "root:@tcp(localhost:3306)/oms", "")
+    name = flag.String("name", "mysql", "driver name")
+)
+
+func main() {
+    flag.Parse()
+    client, err := ent.Open(*name, *dsn)
+    if err != nil {
+        log.Fatalf("failed connecting to mysql: %v", err)
+    }
+    defer client.Close()
+
+    err = client.Schema.Create(
+        context.Background(),
+        migrate.WithDropIndex(true),
+        migrate.WithDropColumn(true),
+        migrate.WithForeignKeys(false),
+        entx.SkipTablesDiffHook("table_name"),
+    )
+    if err != nil {
+        log.Fatalf("failed creating schema resources: %v", err)
+    }
+}
+```
+
+**迁移选项说明:**
+
+| 选项 | 作用 |
+|------|------|
+| `migrate.WithDropIndex(true)` | 允许删除不再需要的索引 |
+| `migrate.WithDropColumn(true)` | 允许删除不再需要的列 |
+| `migrate.WithForeignKeys(false)` | 禁用外键约束(推荐, 避免分布式环境的外键问题) |
+| `entx.SkipTablesDiffHook(...)` | 跳过指定表的 schema diff, 用于不需要自动迁移的表 |
+
+### 测试用迁移
+
+使用 `enttest.Open()` 自动执行迁移, 用于测试环境:
+
+```go
+import "your module path/ent/enttest"
+
+client := enttest.Open(t, "mysql", dsn)
+defer client.Close()
+```
+
+## Ent 缓存 (entcache)
+
+**规则:** 通过 `entcachegen.QueryCache()` 在代码生成时将缓存逻辑织入查询方法, 运行时由 `koapp.BuildEntComponents()` 自动构建缓存驱动。
+
+### 缓存控制
+
+```go
+import "github.com/woocoos/entcache"
+
+// 跳过缓存(用于写操作后的即时查询)
+ctx := entcache.Skip(ctx)
+
+// 设置缓存引用 key (用于 Node API)
+ctx := entcache.WithRefEntryKey(ctx, "Order", id)
+```
+
+### 缓存配置
+
+```yaml
+# app.yaml
+entcache:
+  isolate: true       # 按 schema 隔离缓存命名空间
+  ttl: 5m             # 缓存 TTL
+  gcInterval: 10m     # GC 间隔
+  hashQueryTTL: 10m   # 查询哈希 TTL
+  keyQueryTTL: 10m    # Key 查询 TTL
+```
+
+## GraphQL (gqlgen + entgql)
+
+**规则:** 使用 entgql 自动生成 ent 实体的 GraphQL schema 和 resolver, 手动编写业务 schema 通过 `extend type` 扩展。
+
+### 代码生成流程
+
+Ent 代码生成 (`entc.go`) 和 gqlgen 代码生成 (`gqlgen.go`) 是两个独立步骤:
+
+1. **先执行 ent 代码生成**: `go run codegen/entgen/entc.go` — 生成 ent schema + `ent.graphql` + ent 的 Go 代码
+2. **再执行 gqlgen 代码生成**: `go run codegen/gqlgen/gqlgen.go` — 读取所有 `.graphql` 文件, 生成 resolver 骨架和 model
+
+### gqlgen 配置
+
+配置文件放在 `codegen/gqlgen/gqlgen.yaml`:
+
+```yaml
+schema:
+  - api/graphql/*.graphql    # 包含 ent.graphql (自动生成) + 手动编写的 schema
+
+exec:
+  layout: follow-schema      # 生成文件按 schema 文件名对应
+  dir: api/graphql/generated
+  package: generated
+
+model:
+  filename: api/graphql/model/models_gen.go
+  package: model
+
+resolver:
+  layout: follow-schema      # resolver 文件按 schema 文件名对应
+  dir: api/graphql
+  package: graphql
+
+skip_mod_tidy: true
+omit_gqlgen_version_in_file_notice: true
+
+# 自动绑定 ent 生成的类型, 避免重复定义
+autobind:
+  - your module path/ent
+
+models:
+  ID:
+    model:
+      - github.com/99designs/gqlgen/graphql.IntID  # 整型 ID
+
+directives:
+  constraint:
+    skip_runtime: true
+```
+
+### gqlgen 生成入口
+
+```go
+//go:build ignore
+
+package main
+
+import (
+    "log"
+    "os"
+
+    "github.com/99designs/gqlgen/api"
+    "github.com/99designs/gqlgen/codegen/config"
+    "github.com/99designs/gqlgen/plugin/modelgen"
+    "github.com/woocoos/knockout-go/codegen/gqlx"
+)
+
+func main() {
+    cfg, err := config.LoadConfig("./codegen/gqlgen/gqlgen.yaml")
+    if err != nil {
+        log.Fatal(err)
+    }
+    p := modelgen.Plugin{}
+    err = api.Generate(cfg,
+        api.ReplacePlugin(&p),
+        // knockout-go 的 ResolverPlugin, 增强 Relay Node 支持
+        api.AddPlugin(gqlx.NewResolverPlugin(
+            gqlx.WithRelayNodeEx(),
+            gqlx.WithConfig(cfg),
+        )),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Schema 文件组织
+
+GraphQL schema 文件放在 `api/graphql/` 目录下, 分为自动生成和手动编写两类:
+
+| 文件 | 类型 | 内容 |
+|------|------|------|
+| `ent.graphql` | entgql 自动生成 | ent 实体的 type/input/enum/connection/edge, 基础 Query (node/nodes) |
+| `query.graphql` | 手动编写 | `extend type Query` 扩展自定义查询 |
+| `mutation.graphql` | 手动编写 | `type Mutation` 完整定义 |
+| `types.graphql` | 手动编写 | 自定义 scalar/input/type/enum, `extend type` 扩展 ent 类型 |
+
+**协同模式:**
+- `ent.graphql` 由 entgql 自动生成, 包含所有 ent schema 对应的 GraphQL 类型和 Relay 规范 (Node, Connection, Edge, PageInfo)
+- 手动 schema 使用 `extend type Query` 扩展查询, 使用 `extend type XxxEntity` 为 ent 实体添加计算字段
+- `autobind` 配置使 ent 类型自动映射到 GraphQL, 无需手动重复定义
+
+### 自定义 Scalar 和类型映射
+
+```graphql
+# knockout-go 提供的自定义 scalar
+scalar Decimal @goModel(model: "github.com/woocoos/knockout-go/ent/schemax/typex.Decimal")
+scalar MapString @goModel(model: "github.com/woocoos/knockout-go/ent/schemax/typex.MapString")
+
+# 枚举通过 @goModel 绑定到 Go 类型
+enum OrderSide @goModel(model: "your module path/types.Side") {
+    BUY
+    SELL
+}
+
+# input 可直接映射到 protobuf 类型
+input NewOrderRequest @goModel(model: "your module path/api/omspb.NewOrderRequest") {
+    account: String!
+    symbol: String!
+    # ...
+}
+```
+
+### Resolver 结构
+
+Resolver 使用 Functional Options 模式构造:
+
+```go
+type Resolver struct {
+    client     *ent.Client
+    KoSdk      *api.SDK
+    // 其他服务客户端...
+}
+
+type Option func(*Resolver)
+
+func WithEntClient(client *ent.Client) Option {
+    return func(r *Resolver) { r.client = client }
+}
+
+func NewResolver(opts ...Option) *Resolver {
+    r := &Resolver{}
+    for _, opt := range opts {
+        opt(r)
+    }
+    return r
+}
+
+func NewSchema(resolver *Resolver) graphql.ExecutableSchema {
+    return generated.NewExecutableSchema(generated.Config{
+        Resolvers: resolver,
+    })
+}
+```
+
+**Resolver 文件分工 (follow-schema layout):**
+
+| 文件 | 说明 |
+|------|------|
+| `resolver.go` | Resolver 结构体定义 + Option + NewSchema (不自动生成) |
+| `query.resolvers.go` | Query resolver (gqlgen 生成骨架, 手动填充逻辑) |
+| `mutation.resolvers.go` | Mutation resolver (gqlgen 生成骨架, 手动填充逻辑) |
+| `ent.resolvers.go` | ent 实体的 edge/计算字段 resolver |
+| `types.resolvers.go` | 自定义类型的字段 resolver |
+
+### GraphQL Server 初始化
+
+使用 woocoo 框架的 `gql.RegisterSchema()` 集成 gqlgen:
+
+```go
+import (
+    "github.com/tsingsun/woocoo/contrib/gql"
+    "github.com/tsingsun/woocoo/web"
+    "github.com/woocoos/knockout-go/pkg/middleware"
+    "entgo.io/contrib/entgql"
+)
+
+func (s *Server) buildWebEngine(cnf *conf.AppConfiguration) {
+    s.webSrv = web.New(web.WithConfiguration(cnf.Sub("web")),
+        web.WithGracefulStop(),
+        gql.RegisterMiddleware(),           // woocoo GraphQL 中间件
+        otelweb.RegisterMiddleware(),       // OpenTelemetry
+        web.WithMiddlewareNewFunc("authz", authz.Middleware),
+        middleware.RegisterTenantID(),      // 租户 ID 注入
+        middleware.RegisterTokenSigner(),   // JWT Token 解析
+        middleware.RegisterCacheControl(),  // 缓存控制
+        ratelimiter.RegisterMiddleware(),   // 限流
+    )
+
+    // 创建 resolver 并注册 schema
+    s.resolver = NewResolver(WithEntClient(s.Db), ...)
+    ss, _ := gql.RegisterSchema(s.webSrv, NewSchema(s.resolver))
+    s.gqlSrv = ss[0]
+
+    // 分页中间件
+    s.gqlSrv.AroundResponses(middleware.SimplePagination())
+
+    // ent 事务管理: 自动为 mutation 开启事务
+    s.gqlSrv.Use(entgql.Transactioner{
+        TxOpener: s.Db,
+        // 跳过特定 mutation 的事务 (如走 gRPC 远程调用的下单操作)
+        SkipTxFunc: entgql.SkipIfHasFields(
+            "newOrder", "cancelOrder", "replaceOrder",
+        ),
+    })
+}
+```
+
+**关键集成点:**
+
+| 组件 | 来源 | 作用 |
+|------|------|------|
+| `gql.RegisterMiddleware()` | woocoo/contrib/gql | 注册 GraphQL HTTP handler 中间件 |
+| `gql.RegisterSchema()` | woocoo/contrib/gql | 将 ExecutableSchema 注册到 web server |
+| `entgql.Transactioner` | entgo/contrib/entgql | 自动事务管理 |
+| `middleware.SimplePagination()` | knockout-go/pkg/middleware | Relay 分页元数据处理 |
+| `middleware.RegisterTenantID()` | knockout-go/pkg/middleware | 从 JWT 提取租户 ID 注入 context |
+| `middleware.RegisterTokenSigner()` | knockout-go/pkg/middleware | JWT Token 解析和验证 |
+
+### 应用入口集成
+
+```go
+func main() {
+    app := koapp.New()
+    cnf := app.AppConfiguration()
+
+    // Ent 初始化 (参见 "Ent 客户端初始化" 章节)
+    ents := koapp.BuildEntComponents(cnf)
+    db := ent.NewClient(ent.Driver(ents["oms"]))
+    defer db.Close()
+
+    // GraphQL Server
+    so := graphql.ServerOption{
+        Db: db,
+        // 注入其他服务客户端...
+    }
+    so.KoSdk, _ = api.NewSDK(cnf.Sub("kosdk"))
+    gqlServer, _ := graphql.NewServer(app, so)
+
+    // 注册到 knockout 应用
+    app.RegisterServer(gqlServer)
     app.Run()
 }
 ```
@@ -304,6 +1036,10 @@ return nil, err  // 拦截器自动转换为 gRPC status
 | `pkg/identity/context.go` | 多租户上下文工具 |
 | `pkg/authz/authz.go` | 权限 ARN 工具 |
 | `ent/clientx/driver.go` | Ent 缓存驱动构建器 |
+| `ent/schemax/` | Schema Mixin 体系 (SnowFlakeID, AuditMixin, TenantMixin, SoftDeleteMixin) |
+| `ent/schemax/fieldx/` | 自定义字段类型 (Decimal) |
+| `codegen/entx/` | Ent 代码生成扩展 (GlobalID, SimplePagination, DecimalScalar) |
+| `codegen/gqlx/` | gqlgen 代码生成扩展 (ResolverPlugin, RelayNodeEx) |
 | `api/auth.go` | 认证服务 API 客户端 |
 | `pkg/middleware/ratelimiter/` | 速率限制实现 |
 
@@ -316,3 +1052,10 @@ return nil, err  // 拦截器自动转换为 gRPC status
 | 手动设置 Ent 驱动 | 使用 `koapp.BuildEntComponents()` |
 | 查询中缺少租户上下文 | 始终从 context 派生租户 |
 | 生产环境使用本地速率限制器 | 分布式环境使用 Redis 限制器 |
+| 忘记空白导入 `ent/runtime` | 初始化 Ent Client 的 main.go 必须 `_ "module/ent/runtime"` |
+| 使用 `field.Float` 存储金额 | 使用 `fieldx.Decimal()` 确保精确计算 |
+| 未启用 `FeatureIntercept` 使用 TenantMixin | TenantMixin 依赖拦截器, 必须启用该 Feature |
+| Schema 定义在 `ent/schema/` | knockout-go 项目放在 `codegen/entgen/schema/` |
+| 手动修改 `ent.graphql` | 该文件由 entgql 自动生成, 修改 ent schema 后重新生成 |
+| 手动修改 `*.generated.go` | gqlgen 自动生成的文件不可手动编辑, 修改 resolver 骨架中的逻辑 |
+| 先执行 gqlgen 再执行 ent 代码生成 | ent schema 有变更时, 必须先 `entc.go` 生成 `ent.graphql`, 再 `gqlgen.go` 生成 resolver; schema 无变更时无顺序要求 |
