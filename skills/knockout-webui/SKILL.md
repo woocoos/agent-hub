@@ -724,12 +724,12 @@ ProCard 的 `extra` 区域放置操作按钮，按**只读/编辑两种模式**�
 
 ```tsx
 extra={<Space>
-  {/* 只读模式：显示"编辑"按钮 → 移除 URL 中的 readonly 参数 */}
+  {/* 只读模式：显示"编辑"按钮 → 移除 URL 中的 preview 参数 */}
   {isReadonly && hasId && (
     <Auth authKey="updateXxx">
       <Button type="primary" onClick={() => {
         const params = new URLSearchParams(searchParams);
-        params.delete('readonly');
+        params.delete('preview');
         setSearchParams(params);
       }}>
         编辑
@@ -757,7 +757,7 @@ extra={<Space>
 | `!isReadonly && hasId` | 编辑已有记录 | 启用/禁用、业务操作等 |
 | `!isReadonly && !hasId` | 新建记录 | 通常无额外按钮（保存由 Tab 内表单处理） |
 
-> **核心逻辑：** "编辑"按钮通过 `params.delete('readonly')` 切换 URL 参数实现只读→编辑的模式切换，而非跳转到新页面。
+> **核心逻辑：** "编辑"按钮通过 `params.delete('preview')` 切换 URL 参数实现只读→编辑的模式切换，而非跳转到新页面。
 
 ### 7.3 页面标题规范
 
@@ -806,7 +806,7 @@ useEffect(() => {
 ```tsx
 const [searchParams, setSearchParams] = useSearchParams();
 const id = searchParams.get('id') ?? '';
-const isReadonly = searchParams.get('readonly') === 'true';
+const isReadonly = !!searchParams.get('preview');
 ```
 
 #### 新建保存后更新 URL
@@ -1582,3 +1582,584 @@ for (const key in dictionary) {
 12. **数值列：** `align: 'right'`
 13. **搜索表单：** `className: 'ql-pro-table-search'`
 14. **行选择：** `type: 'radio'` + `onMousedown` 区分点击与文本选择
+
+---
+
+## 十八、项目基础开发规范
+
+### 18.1 项目目录结构
+
+```
+src/
+├── assets/                    # 静态资源
+│   └── styles/
+│       └── index.css          # 全局样式（已废弃，使用 global.css）
+├── components/                # 全局共享组件
+│   ├── auth/                  # 权限组件
+│   │   └── index.tsx          # Auth 组件 + checkAuth 函数
+│   ├── layout/                # 布局组件
+│   │   ├── index.tsx          # 主布局
+│   │   ├── menu.json          # 菜单配置（开发环境权限来源）
+│   │   └── stark.tsx          # icestark 微前端配置
+│   ├── editor/                # 富文本编辑器
+│   ├── mapstring/             # 键值对编辑组件
+│   └── modalConfirm/          # 确认弹窗组件
+├── generated/                 # GraphQL 代码生成目录（勿手动修改）
+│   └── {module}/              # 按业务模块分目录（如 user、order、product 等）
+│       ├── graphql.ts         # 类型定义（实体、输入、枚举等）
+│       ├── gql.ts             # gql 标签函数
+│       ├── fragment-masking.ts # Fragment 类型遮蔽
+│       └── index.ts           # 统一导出
+├── pages/                     # 页面目录（文件系统路由）
+│   ├── layout.tsx             # 根布局
+│   ├── index.tsx              # 首页
+│   ├── $.tsx                  # 404 页面
+│   └── {module}/              # 业务模块
+│       └── {entity}/          # 实体页面
+│           ├── index.tsx      # 列表页
+│           ├── components/    # 页面级组件
+│           │   └── editor.tsx # 编辑弹窗
+│           └── editor/        # 详情编辑页（独立路由，按需）
+│               ├── index.tsx
+│               └── components/
+├── services/                  # 服务层（GraphQL API 封装）
+│   ├── index.ts               # 统一导出入口
+│   └── {module}/              # 按业务模块分目录
+│       ├── index.ts           # 模块导出入口
+│       ├── enums.ts           # 枚举映射定义
+│       └── {entity}.ts        # 实体 CRUD 服务
+├── util/                      # 工具函数
+│   ├── index.ts               # 通用工具函数
+│   ├── hook.ts                # 自定义 Hooks
+│   └── excel.ts               # Excel 导出工具
+├── global.css                 # 全局样式
+└── app.tsx                    # 应用入口配置
+```
+
+### 18.2 文件命名规范
+
+| 类型 | 命名规则 | 示例 |
+|------|---------|------|
+| **页面文件** | `index.tsx`（目录入口） | `src/pages/{module}/{entity}/index.tsx` |
+| **页面级组件** | camelCase | `editor.tsx`, `basicInfo.tsx` |
+| **全局组件** | 目录 + `index.tsx` | `components/auth/index.tsx` |
+| **服务文件** | camelCase（实体名） | `userService.ts`, `orderService.ts` |
+| **枚举文件** | `enums.ts`（模块级统一） | `services/{module}/enums.ts` |
+| **类型文件** | 由 GraphQL 生成 | `generated/{module}/graphql.ts` |
+| **样式文件** | 与组件同名或 `global.css` | `custom.css`, `global.css` |
+| **工具文件** | camelCase | `hook.ts`, `excel.ts` |
+
+**组件文件命名规则：**
+- 页面级组件（仅当前页面使用）：放在 `components/` 子目录，camelCase 命名
+- 全局共享组件（多页面复用）：放在 `src/components/`，PascalCase 目录名 + `index.tsx`
+
+### 18.3 TypeScript 类型定义规范
+
+#### 类型来源
+
+所有 GraphQL 实体类型**必须**从 `@/generated/{module}/graphql` 导入，**禁止**手动定义与后端重复的类型：
+
+```tsx
+// ✅ 正确：从 generated 导入
+import { User, UserWhereInput, UpdateUserInput } from '@/generated/{module}/graphql';
+
+// ❌ 错误：手动重复定义
+interface User {
+  id: string;
+  name: string;
+  // ...
+}
+```
+
+#### 本地扩展类型
+
+当需要在 GraphQL 类型基础上扩展字段时，使用 `type` 或 `interface` 扩展：
+
+```tsx
+// 扩展关联数据
+type UserDataSource = User & {
+  department?: Department;  // 关联的部门信息
+};
+
+// 表单数据类型（与 GraphQL Input 对齐）
+interface FormData {
+  name?: string;
+  email?: string;
+  phone?: string;
+  departmentId?: string;
+}
+```
+
+#### 类型命名约定
+
+| 类型 | 命名规则 | 示例 |
+|------|---------|------|
+| GraphQL 实体 | 与后端一致 | `User`, `Order`, `Product` |
+| Where 输入 | `{Entity}WhereInput` | `UserWhereInput` |
+| 创建输入 | `Create{Entity}Input` | `CreateUserInput` |
+| 更新输入 | `Update{Entity}Input` | `UpdateUserInput` |
+| 排序输入 | `{Entity}Order` | `UserOrder` |
+| 枚举类型 | `{Entity}{Field}` | `UserStatus` |
+| 连接类型 | `{Entity}Connection` | `UserConnection` |
+| 边缘类型 | `{Entity}Edge` | `UserEdge` |
+
+### 18.4 服务层（GraphQL）定义规范
+
+#### 服务函数命名规范
+
+| 操作 | 函数命名 | 参数 | 返回值 |
+|------|---------|------|--------|
+| 列表查询 | `get{Entity}List` | `{ current, pageSize, where, orderBy }` | `Connection` |
+| 详情查询 | `get{Entity}Info` | `id: string` | `Entity \| null` |
+| 创建 | `mutCreate{Entity}` | `input: CreateInput` | `Entity` |
+| 更新 | `mutUpdate{Entity}` | `id, input: UpdateInput` | `Entity` |
+| 删除 | `mutDelete{Entity}` | `id: string` | `boolean` |
+
+#### 模块导出入口
+
+每个模块的 `services/{module}/index.ts` 必须统一导出所有服务和枚举：
+
+```tsx
+/**
+ * {Module} GraphQL API 服务入口
+ */
+
+// 枚举映射
+export {
+  EnumUserStatus,
+  EnumOrderState,
+  // ...
+} from './enums';
+export type { StatusType } from './enums';
+
+// 实体服务
+export * from './user';
+export * from './order';
+export * from './product';
+// ...
+```
+
+### 18.5 菜单配置规范（menu.json）
+
+`src/components/layout/menu.json` 定义应用菜单结构，同时作为开发环境权限来源：
+
+```json
+[
+  {
+    "name": "系统管理",           // 菜单分组名称
+    "icon": "icon-icon_zhanghu1", // 图标（可选）
+    "children": [
+      {
+        "name": "用户管理",       // 页面名称
+        "path": "/{module}/users"  // 路由路径（必须与 pages 目录对应）
+      },
+      {
+        "name": "订单管理",
+        "path": "/{module}/orders"
+      }
+    ]
+  }
+]
+```
+
+**菜单配置规则：**
+
+| 规则 | 说明 |
+|------|------|
+| `path` 必须唯一 | 每个页面的 `path` 不能重复 |
+| `path` 与 `pages` 目录对应 | `/{module}/users` → `src/pages/{module}/users/index.tsx` |
+| 开发环境权限 | `path` 自动作为 Auth Key 授予权限 |
+| 生产环境权限 | 由后端 `userPermissions` 接口返回 |
+
+### 18.6 路由配置规范
+
+#### 文件系统路由
+
+项目使用 **ice.js 文件系统路由**，`src/pages/` 目录结构即为路由结构：
+
+| 文件路径 | 路由路径 |
+|---------|---------|
+| `pages/index.tsx` | `/` |
+| `pages/{module}/user/index.tsx` | `/{module}/user` |
+| `pages/{module}/order/editor/index.tsx` | `/{module}/order/editor` |
+
+#### 路由忽略配置
+
+```tsx
+// ice.config.mts
+export default defineConfig(() => ({
+  routes: {
+    ignoreFiles: [
+      '**/components/**',  // 忽略 components 目录被解析为路由
+    ],
+  },
+}));
+```
+
+#### 路由参数
+
+详情编辑页通过 URL 参数传递数据：
+
+```tsx
+const [searchParams, setSearchParams] = useSearchParams();
+const id = searchParams.get('id') ?? '';
+const isReadonly = !!searchParams.get('preview');
+```
+
+#### 页面配置
+
+每个页面必须导出 `pageConfig` 配置路由权限：
+
+```tsx
+export const pageConfig = definePageConfig(() => ({
+  auth: ['/{module}/user'],  // 必须与 menu.json 中的 path 一致
+}));
+```
+
+### 18.7 样式规范
+
+#### 全局样式
+
+`src/global.css` 定义全局样式，包括：
+- 页面容器样式
+- ProTable 样式覆盖
+- 详情页样式
+- 通用工具类
+
+#### 样式命名规则
+
+| 类型 | 命名规则 | 示例 |
+|------|---------|------|
+| 页面容器 | `ql-{pageType}-container` | `ql-page-container`, `ql-detail-container` |
+| 组件样式 | `ql-{component}` | `ql-divider-gray`, `ql-readonly-tags` |
+| 详情页 | `ql-detail-{part}` | `ql-detail-title`, `ql-detail-tabs` |
+| 工具类 | 语义化命名 | `ellipsis`, `order-settled` |
+
+#### 样式文件组织
+
+```
+src/
+├── global.css                    # 全局样式（必须）
+└── pages/
+    └── {module}/
+        └── {entity}/
+            └── components/
+                └── custom.css  # 页面级样式（按需）
+```
+
+**样式引入方式：**
+
+```tsx
+// 页面级样式在 index.tsx 或组件中引入
+import './components/calender.css';
+```
+
+#### 样式优先级
+
+1. `antd` 默认样式
+2. `@ant-design/pro-components` 样式
+3. `src/global.css` 全局覆盖
+4. 页面级 CSS 文件（特定场景）
+
+### 18.8 GraphQL 代码生成规范
+
+#### 代码生成配置
+
+`script/gqlgen.ts` 配置 GraphQL 代码生成：
+
+```tsx
+const config: CodegenConfig = {
+  generates: {
+    "src/generated/{module}/": {
+      preset: 'client',
+      presetConfig: {
+        gqlTagName: 'gql',
+      },
+      schema: "script/generated/{module}.graphql",
+      documents: "src/services/{module}/**/*.ts",
+    },
+    // ...其他模块
+  },
+  ignoreNoDocuments: true,
+};
+```
+
+#### 生成命令
+
+```bash
+# 生成 schema（从后端拉取）
+pnpm gqlgen:schema-ast
+
+# 生成类型和 gql 函数
+pnpm gqlgen
+
+# 监听模式（开发时）
+pnpm gqlgen:watch
+```
+
+#### 生成文件说明
+
+| 文件 | 用途 |
+|------|------|
+| `graphql.ts` | 所有类型定义（实体、输入、枚举、连接等） |
+| `gql.ts` | `gql` 标签函数，用于编写类型安全的 GraphQL 查询 |
+| `fragment-masking.ts` | Fragment 类型遮蔽工具 |
+| `index.ts` | 统一导出 `gql` 和 fragment 工具 |
+
+#### 使用规范
+
+```tsx
+// ✅ 正确：使用生成的 gql 函数
+import { gql } from '@/generated/{module}';
+const queryUser = gql(`query user($gid: GID!) { ... }`);
+
+// ❌ 错误：使用普通字符串
+const queryUser = `query user($gid: GID!) { ... }`;
+```
+
+### 18.9 错误处理规范
+
+#### GraphQL 错误处理
+
+使用 `@knockout-js/ice-urql` 的请求拦截器自动处理错误：
+
+```tsx
+import { koErrorFormat, KoErr, KoErrFormat } from '@knockout-js/ice-urql/requestInterceptor';
+import { getI18n } from 'react-i18next';
+
+/**
+ * 格式化处理 GraphQL 错误
+ */
+export const errTextFormat = (str?: string) => {
+  if (!str) return '';
+
+  const i18n = getI18n();
+  try {
+    const objErr = JSON.parse(str) as KoErr;
+    const objStr = KoErrFormat(objErr, i18n);
+    if (objStr) return objStr;
+  } catch (error) {
+    // 非 JSON 格式，直接返回原文
+  }
+  return str;
+};
+```
+
+#### 表单提交错误处理
+
+```tsx
+onFinish={async (values: FormData) => {
+  setSaveLoading(true);
+  try {
+    const result = await mutCreateXxx({ ... });
+    if (result?.id) {
+      message.success('保存成功');
+      props.onClose?.(true, result);
+    }
+  } catch (error) {
+    // 错误由请求拦截器统一处理，此处无需额外处理
+  }
+  setSaveLoading(false);
+  return false;
+}}
+```
+
+#### 删除操作错误处理
+
+```tsx
+Modal.confirm({
+  title: '删除',
+  content: `是否删除：${record.name}？`,
+  onOk: async () => {
+    return new Promise(async (resolve, reject) => {
+      const result = await mutDeleteXxx(record.id);
+      if (result) {
+        message.success('执行成功');
+        setDataSource(prev => prev.filter(item => item.id !== record.id));
+        resolve(true);
+      } else {
+        reject();  // 失败时关闭 loading，保留弹窗
+      }
+    });
+  },
+});
+```
+
+### 18.10 国际化规范
+
+#### 基础用法
+
+```tsx
+import { useTranslation } from 'react-i18next';
+
+const List = () => {
+  const { t } = useTranslation();
+
+  return (
+    <ProTable
+      search={{
+        searchText: `${t('query')}`,  // 查询
+        resetText: `${t('reset')}`,   // 重置
+      }}
+    />
+  );
+};
+```
+
+#### 常用翻译 Key
+
+| Key | 中文 |
+|-----|------|
+| `query` | 查询 |
+| `reset` | 重置 |
+| `create` | 新建 |
+| `edit` | 编辑 |
+| `delete` | 删除 |
+| `save` | 保存 |
+| `cancel` | 取消 |
+| `confirm` | 确认 |
+
+#### 语言检测
+
+```tsx
+// src/util/index.ts
+export const browserLanguage = () => {
+  let locale = '';
+  switch (navigator.language) {
+    case 'zh':
+      locale = 'zh-CN';
+      break;
+    case 'en':
+      locale = 'en-US';
+      break;
+    default:
+      locale = 'zh-CN';
+  }
+  return locale;
+};
+```
+
+### 18.11 开发环境配置
+
+#### 环境变量
+
+`.env.local` 配置本地开发环境变量：
+
+```bash
+# GraphQL Schema 拉取 Token
+GQL_SCHEMA_AST_TOKEN=your_token_here
+
+# API 代理地址
+ICE_PROXY_API=http://your-api-host:port
+ICE_PROXY_{MODULE}_API=http://your-module-api-host:port
+```
+
+#### 代理配置
+
+`ice.config.mts` 配置开发代理：
+
+```tsx
+export default defineConfig(() => ({
+  proxy: {
+    [`/api-{module}/`]: {
+      target: ICE_PROXY_{MODULE}_API || ICE_PROXY_API,
+      changeOrigin: true,
+      pathRewrite: { [`^/api-{module}/`]: '/' },
+    },
+    [`/api-resource/`]: {
+      target: ICE_PROXY_API,
+      changeOrigin: true,
+    },
+    // ...其他代理
+  },
+}));
+```
+
+#### 开发命令
+
+```bash
+# 启动开发服务器
+pnpm dev
+
+# 启动（无 mock）
+pnpm start
+
+# 构建生产版本
+pnpm build
+
+# 代码检查
+pnpm eslint
+pnpm eslint:fix
+
+# 样式检查
+pnpm stylelint
+pnpm stylelint:fix
+
+# GraphQL 代码生成
+pnpm gqlgen
+```
+
+### 18.12 微前端配置
+
+项目作为 **icestark 子应用**运行：
+
+```tsx
+// ice.config.mts
+export default defineConfig(() => ({
+  plugins: [
+    icestark({ type: 'child', library: "{app-name}" }),
+    // ...
+  ],
+}));
+```
+
+#### 与主应用通信
+
+```tsx
+import { store } from '@ice/stark-data';
+import { isInIcestark } from '@ice/stark-app';
+
+// 获取主应用数据
+if (isInIcestark()) {
+  const userMenu = store.get('userMenu');
+  const userInfo = store.get('userInfo');
+}
+```
+
+### 18.13 项目依赖说明
+
+#### 核心框架
+
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| `@ice/app` | 3.6.5 | ice.js 框架核心 |
+| `@ice/runtime` | 1.5.6 | 运行时 |
+| `react` | ^18.2.0 | React |
+| `react-dom` | ^18.2.0 | React DOM |
+
+#### UI 组件
+
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| `antd` | ^5.28.0 | Ant Design |
+| `@ant-design/pro-components` | ^2.8.7 | ProTable / ProForm |
+| `@ant-design/icons` | ^5.2.5 | 图标库 |
+
+#### Knockout 生态
+
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| `@knockout-js/layout` | 0.1.34 | KeepAlive / Modal / useLeavePrompt |
+| `@knockout-js/api` | 0.1.18 | GraphQL 请求封装 |
+| `@knockout-js/ice-urql` | 0.1.25 | ICE + urql 集成 |
+| `@knockout-js/org` | 0.1.28 | 组织选择组件 |
+
+#### 工具库
+
+| 依赖 | 用途 |
+|------|------|
+| `dayjs` | 日期处理 |
+| `lodash` | 工具函数 |
+| `react-i18next` | 国际化 |
+| `react-antd-column-resize` | 表格列宽拖拽 |
+| `xlsx` | Excel 导出 |
